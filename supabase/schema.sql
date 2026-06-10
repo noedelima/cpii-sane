@@ -209,6 +209,31 @@ create table if not exists public.nf_empenhos (
 create index if not exists idx_nf_empenhos_nf on public.nf_empenhos(nf_id);
 create index if not exists idx_nf_empenhos_empenho on public.nf_empenhos(empenho_id);
 
+-- Atestes de recebimento: documento PDF gerado pela SANE por fornecedor para
+-- instruir o processo de pagamento no SUAP. Registro imutável (sem update).
+create table if not exists public.atestes (
+  id              bigserial primary key,
+  fornecedor_id   bigint not null references public.fornecedores(id) on delete restrict,
+  processo_suap   text,
+  local_emissao   text not null default 'Rio de Janeiro',
+  data_emissao    date not null default current_date,
+  observacoes     text,
+  valor_total     numeric(14,2) not null default 0,
+  qtd_nfs         int not null default 0,
+  gerado_por      uuid references auth.users(id) on delete set null,
+  gerado_por_nome text,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_atestes_fornecedor on public.atestes(fornecedor_id);
+
+create table if not exists public.atestes_nfs (
+  id         bigserial primary key,
+  ateste_id  bigint not null references public.atestes(id) on delete cascade,
+  nf_id      bigint not null references public.notas_fiscais(id) on delete restrict,
+  unique (ateste_id, nf_id)
+);
+create index if not exists idx_atestes_nfs_nf on public.atestes_nfs(nf_id);
+
 -- =========================================================
 -- 5) Perfis (relaciona auth.users a um papel + campus)
 -- =========================================================
@@ -274,6 +299,8 @@ alter table public.recibos_itens  enable row level security;
 alter table public.notas_fiscais  enable row level security;
 alter table public.nf_itens       enable row level security;
 alter table public.nf_empenhos    enable row level security;
+alter table public.atestes        enable row level security;
+alter table public.atestes_nfs    enable row level security;
 alter table public.perfis         enable row level security;
 
 -- =========================================================
@@ -344,7 +371,8 @@ begin
   -- remove policies anteriores (inclusive as do MVP)
   for t in select unnest(array[
     'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
-    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos','perfis'
+    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos',
+    'atestes','atestes_nfs','perfis'
   ]) loop
     execute format('drop policy if exists p_%s_select on public.%s', t, t);
     execute format('drop policy if exists p_%s_insert on public.%s', t, t);
@@ -355,7 +383,8 @@ begin
   -- leitura geral autenticada (perfis tem regra própria abaixo)
   for t in select unnest(array[
     'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
-    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos'
+    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos',
+    'atestes','atestes_nfs'
   ]) loop
     execute format(
       'create policy p_%s_select on public.%s for select to authenticated using (true)', t, t);
@@ -363,7 +392,8 @@ begin
 
   -- escrita SANE/admin no núcleo operacional
   for t in select unnest(array[
-    'itens','empenhos','empenhos_grupos','notas_fiscais','nf_itens','nf_empenhos'
+    'itens','empenhos','empenhos_grupos','notas_fiscais','nf_itens','nf_empenhos',
+    'atestes','atestes_nfs'
   ]) loop
     execute format(
       'create policy p_%s_insert on public.%s for insert to authenticated
@@ -388,7 +418,8 @@ begin
   -- delete: só admin
   for t in select unnest(array[
     'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
-    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos'
+    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos',
+    'atestes','atestes_nfs'
   ]) loop
     execute format(
       'create policy p_%s_delete on public.%s for delete to authenticated
@@ -551,3 +582,41 @@ begin
   return query select * from public.nf_empenhos where nf_id = p_nf_id;
 end;
 $fifo$;
+
+-- =========================================================
+-- 11) Definição de senha por administrador
+-- =========================================================
+-- O SMTP padrão do Supabase não entrega no domínio institucional; o admin
+-- define uma senha inicial/nova para o servidor sem conhecer a anterior.
+-- security definer com gate explícito de papel; sem execute para anon.
+
+create or replace function public.admin_set_user_password(
+  target_user_id uuid,
+  new_password text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $asp$
+begin
+  if coalesce(public.current_papel(), '') <> 'admin' then
+    raise exception 'Apenas administradores podem definir senha de usuários.';
+  end if;
+  if new_password is null or length(new_password) < 10 then
+    raise exception 'A senha deve ter ao menos 10 caracteres.';
+  end if;
+  update auth.users
+     set encrypted_password = extensions.crypt(new_password, extensions.gen_salt('bf')),
+         email_confirmed_at = coalesce(email_confirmed_at, now()),
+         updated_at = now()
+   where id = target_user_id;
+  if not found then
+    raise exception 'Usuário não encontrado.';
+  end if;
+end;
+$asp$;
+
+revoke execute on function public.admin_set_user_password(uuid, text) from public;
+revoke execute on function public.admin_set_user_password(uuid, text) from anon;
+grant execute on function public.admin_set_user_password(uuid, text) to authenticated;

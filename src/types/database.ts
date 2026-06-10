@@ -158,6 +158,27 @@ export interface NFItem {
 
 export type Papel = "campus" | "sane" | "admin" | "outros";
 
+/** Ateste de recebimento gerado pela SANE (PDF para o processo no SUAP). */
+export interface Ateste {
+  id: number;
+  fornecedor_id: number;
+  processo_suap: string | null;
+  local_emissao: string;
+  data_emissao: string;
+  observacoes: string | null;
+  valor_total: number;
+  qtd_nfs: number;
+  gerado_por: string | null;
+  gerado_por_nome: string | null;
+  created_at: string;
+}
+
+export interface AtesteNF {
+  id: number;
+  ateste_id: number;
+  nf_id: number;
+}
+
 export interface Perfil {
   id: string;
   nome: string;

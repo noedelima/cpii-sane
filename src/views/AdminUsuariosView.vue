@@ -33,6 +33,59 @@ async function load() {
   loading.value = false;
 }
 
+// --- definição de senha (admin) ---
+const pwdUser = ref<LinhaPerfil | null>(null);
+const pwdValue = ref("");
+const pwdSaving = ref(false);
+const pwdError = ref<string | null>(null);
+const pwdDone = ref(false);
+const copiado = ref(false);
+
+function gerarSenha(): string {
+  const alfabeto = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  const bytes = new Uint32Array(16);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((b) => alfabeto[b % alfabeto.length]).join("");
+}
+
+function abrirPwd(linha: LinhaPerfil) {
+  pwdUser.value = linha;
+  pwdValue.value = gerarSenha();
+  pwdError.value = null;
+  pwdDone.value = false;
+  copiado.value = false;
+}
+
+async function copiarSenha() {
+  try {
+    await navigator.clipboard.writeText(pwdValue.value);
+    copiado.value = true;
+    setTimeout(() => (copiado.value = false), 1500);
+  } catch {
+    /* clipboard indisponível: usuário copia manualmente */
+  }
+}
+
+async function confirmarPwd() {
+  if (!pwdUser.value) return;
+  pwdError.value = null;
+  if (pwdValue.value.length < 10) {
+    pwdError.value = "Use ao menos 10 caracteres.";
+    return;
+  }
+  pwdSaving.value = true;
+  const { error: err } = await supabase.rpc("admin_set_user_password", {
+    target_user_id: pwdUser.value.id,
+    new_password: pwdValue.value,
+  });
+  pwdSaving.value = false;
+  if (err) {
+    pwdError.value = err.message;
+    return;
+  }
+  pwdDone.value = true;
+}
+
 async function salvar(linha: LinhaPerfil) {
   linha._saving = true;
   error.value = null;
@@ -104,7 +157,8 @@ onMounted(load);
                 <option v-for="c in campi" :key="c.id" :value="c.id">{{ c.nome }}</option>
               </select>
             </td>
-            <td class="px-4 py-2 text-right whitespace-nowrap">
+            <td class="px-4 py-2 text-right whitespace-nowrap space-x-2">
+              <button class="btn-ghost" @click="abrirPwd(p)">Definir senha</button>
               <button class="btn-secondary" :disabled="p._saving" @click="salvar(p)">
                 {{ p._saving ? "Salvando…" : p._savedAt ? "Salvo ✓" : "Salvar" }}
               </button>
@@ -116,7 +170,61 @@ onMounted(load);
 
     <p class="text-xs text-slate-500 mt-3">
       O cadastro de novos usuários é feito pelo próprio servidor na tela de login
-      (link por e-mail) ou pelo administrador no painel do Supabase.
+      (link por e-mail) ou pelo administrador no painel do Supabase. Como o e-mail
+      institucional nem sempre recebe o link, use <strong>Definir senha</strong> para
+      liberar o acesso por senha.
     </p>
+
+    <!-- Modal: definir senha de usuário -->
+    <div
+      v-if="pwdUser"
+      class="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 px-4"
+      @click.self="pwdUser = null"
+    >
+      <div class="card w-full max-w-md p-5 space-y-4">
+        <h2 class="font-semibold text-slate-800">
+          Definir senha — {{ pwdUser.nome }}
+        </h2>
+        <p class="text-sm text-slate-600">
+          {{ pwdUser.email ?? "—" }}
+        </p>
+
+        <template v-if="!pwdDone">
+          <div>
+            <label class="label">Nova senha (sugerida — pode editar)</label>
+            <div class="flex gap-2">
+              <input v-model="pwdValue" type="text" class="input font-mono" spellcheck="false" />
+              <button type="button" class="btn-secondary shrink-0" @click="pwdValue = gerarSenha()">↻</button>
+            </div>
+          </div>
+          <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2">
+            Anote e repasse a senha ao servidor por canal seguro. Ela não poderá ser
+            consultada depois — apenas redefinida. O e-mail é confirmado automaticamente.
+          </p>
+          <p v-if="pwdError" class="text-sm text-red-600">{{ pwdError }}</p>
+          <div class="flex justify-end gap-2">
+            <button class="btn-ghost" @click="pwdUser = null">Cancelar</button>
+            <button class="btn-primary" :disabled="pwdSaving" @click="confirmarPwd">
+              {{ pwdSaving ? "Aplicando…" : "Definir senha" }}
+            </button>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">
+            Senha definida com sucesso. Copie e repasse ao servidor:
+            <div class="mt-2 flex items-center gap-2">
+              <code class="bg-white border border-green-200 rounded px-2 py-1 font-mono text-sm">{{ pwdValue }}</code>
+              <button class="btn-secondary" @click="copiarSenha">
+                {{ copiado ? "Copiado ✓" : "Copiar" }}
+              </button>
+            </div>
+          </div>
+          <div class="flex justify-end">
+            <button class="btn-primary" @click="pwdUser = null">Fechar</button>
+          </div>
+        </template>
+      </div>
+    </div>
   </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 
@@ -54,20 +54,29 @@ async function sair() {
   router.push("/login");
 }
 
-const navItems = [
-  { to: "/dashboard", label: "Dashboard" },
-  { to: "/recibos", label: "Recibos" },
-  { to: "/nfs", label: "Notas Fiscais" },
-  { to: "/empenhos", label: "Empenhos" },
-];
+const logoUrl = import.meta.env.BASE_URL + "cpii-logo.png";
+
+const navItems = computed(() => {
+  const items = [
+    { to: "/dashboard", label: "Dashboard" },
+    { to: "/recibos", label: "Recibos" },
+    { to: "/nfs", label: "Notas Fiscais" },
+    { to: "/empenhos", label: "Empenhos" },
+  ];
+  if (auth.isSane) items.push({ to: "/ateste", label: "Ateste" });
+  return items;
+});
 </script>
 
 <template>
   <div class="min-h-screen flex flex-col">
     <header class="bg-cpii-600 text-white shadow">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3">
-        <RouterLink to="/" class="font-semibold text-lg tracking-tight shrink-0">
-          SANE — Controle de Empenhos
+        <RouterLink to="/" class="flex items-center gap-2.5 font-semibold text-lg tracking-tight shrink-0">
+          <span class="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 shadow-sm">
+            <img :src="logoUrl" alt="Colégio Pedro II" class="h-7 w-7 object-contain" />
+          </span>
+          <span>SANE — Controle de Empenhos</span>
         </RouterLink>
 
         <nav v-if="auth.user" class="hidden md:flex items-center gap-1">
