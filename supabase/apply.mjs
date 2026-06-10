@@ -1,56 +1,33 @@
-// Aplica schema.sql + seed.sql no Supabase via Management API.
+// Aplica schema.sql + seed.sql + storage.sql no Supabase via conexao Postgres
+// direta (driver pg, com fallback para o pooler IPv4). Nao depende de PAT.
 // Uso: node supabase/apply.mjs
 import { readFileSync } from "node:fs";
+import { connect } from "./db.mjs";
 
-const env = Object.fromEntries(
-  readFileSync(".env.local", "utf8")
-    .split("\n")
-    .filter((l) => l.includes("="))
-    .map((l) => {
-      const i = l.indexOf("=");
-      return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
-    })
-);
-const ref = env.SUPABASE_PROJECT_REF;
-const pat = env.SUPABASE_PAT;
-if (!ref || !pat) {
-  console.error("Faltam SUPABASE_PROJECT_REF ou SUPABASE_PAT em .env.local");
-  process.exit(1);
-}
+const files = ["supabase/schema.sql", "supabase/seed.sql", "supabase/storage.sql"];
 
-async function runSql(label, sql) {
-  console.log(`\n-- ${label} (${sql.length} bytes) --`);
-  const r = await fetch(
-    `https://api.supabase.com/v1/projects/${ref}/database/query`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${pat}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query: sql }),
-    }
-  );
-  const txt = await r.text();
-  if (!r.ok) {
-    console.error(`HTTP ${r.status}: ${txt.substring(0, 800)}`);
-    process.exit(1);
+const client = await connect();
+try {
+  for (const f of files) {
+    const sql = readFileSync(f, "utf8");
+    console.log("-- " + f + " (" + sql.length + " bytes)");
+    await client.query(sql);
+    console.log("OK");
   }
-  console.log(`OK (${r.status}). Resposta: ${txt.substring(0, 400)}`);
-  return txt;
+
+  const check =
+    "select " +
+    "(select count(*) from public.campi) as campi, " +
+    "(select count(*) from public.fornecedores) as fornecedores, " +
+    "(select count(*) from public.grupos) as grupos, " +
+    "(select count(*) from public.itens) as itens, " +
+    "(select count(*) from public.empenhos) as empenhos, " +
+    "(select count(*) from public.notas_fiscais) as notas_fiscais, " +
+    "(select count(*) from public.nf_empenhos) as nf_empenhos, " +
+    "(select count(*) from public.recibos) as recibos, " +
+    "(select count(*) from public.perfis) as perfis";
+  const r = await client.query(check);
+  console.log("contagens:", JSON.stringify(r.rows[0]));
+} finally {
+  await client.end();
 }
-
-const schema = readFileSync("supabase/schema.sql", "utf8");
-await runSql("schema.sql", schema);
-
-const seed = readFileSync("supabase/seed.sql", "utf8");
-await runSql("seed.sql", seed);
-
-const check = `select
-  (select count(*) from public.campi)        as campi,
-  (select count(*) from public.fornecedores) as fornecedores,
-  (select count(*) from public.grupos)       as grupos,
-  (select count(*) from public.itens)        as itens,
-  (select count(*) from public.empenhos)     as empenhos,
-  (select count(*) from public.recibos)      as recibos`;
-await runSql("contagens", check);

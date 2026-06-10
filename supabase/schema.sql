@@ -213,14 +213,26 @@ create index if not exists idx_nf_empenhos_empenho on public.nf_empenhos(empenho
 -- 5) Perfis (relaciona auth.users a um papel + campus)
 -- =========================================================
 
+-- Papéis: admin (gestão de usuários e cadastros), sane (itens/NFs/empenhos),
+-- campus (recibos do próprio campus), outros (somente leitura/dashboard).
 create table if not exists public.perfis (
   id          uuid primary key references auth.users(id) on delete cascade,
   nome        text not null,
-  papel       text not null default 'campus' check (papel in ('campus','sane','admin')),
+  email       text,
+  papel       text not null default 'outros' check (papel in ('campus','sane','admin','outros')),
   campus_id   bigint references public.campi(id) on delete set null,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
+
+-- Migração idempotente (bancos criados antes de 10/06/2026):
+alter table public.perfis add column if not exists email text;
+alter table public.perfis alter column papel set default 'outros';
+alter table public.perfis drop constraint if exists perfis_papel_check;
+alter table public.perfis add constraint perfis_papel_check
+  check (papel in ('campus','sane','admin','outros'));
+update public.perfis p set email = u.email
+  from auth.users u where u.id = p.id and p.email is null;
 
 -- =========================================================
 -- 6) Triggers para manter updated_at
@@ -278,14 +290,15 @@ security definer
 set search_path = public
 as $fn$
 begin
-  insert into public.perfis (id, nome, papel)
+  insert into public.perfis (id, nome, papel, email)
   values (
     new.id,
     coalesce(
       nullif(trim(new.raw_user_meta_data ->> 'nome'), ''),
       split_part(coalesce(new.email, ''), '@', 1)
     ),
-    'campus'
+    'outros',
+    new.email
   )
   on conflict (id) do nothing;
   return new;
@@ -297,22 +310,38 @@ create trigger trg_on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- Backfill: usuários criados antes do trigger ganham perfil agora.
-insert into public.perfis (id, nome, papel)
+insert into public.perfis (id, nome, papel, email)
 select
   u.id,
   coalesce(
     nullif(trim(u.raw_user_meta_data ->> 'nome'), ''),
     split_part(coalesce(u.email, ''), '@', 1)
   ),
-  'campus'
+  'outros',
+  u.email
 from auth.users u
 left join public.perfis p on p.id = u.id
 where p.id is null;
 
--- MVP: todo usuário autenticado pode ler e inserir. Refinaremos depois.
-do $$
+-- Funções helper de autorização (security definer evita recursão de RLS
+-- ao consultar perfis dentro das próprias policies).
+create or replace function public.current_papel()
+returns text language sql stable security definer set search_path = public
+as $cp$ select papel from public.perfis where id = auth.uid() $cp$;
+
+create or replace function public.current_campus_id()
+returns bigint language sql stable security definer set search_path = public
+as $cc$ select campus_id from public.perfis where id = auth.uid() $cc$;
+
+-- Matriz de acesso:
+--   admin  -> tudo (usuários, cadastros, deletes)
+--   sane   -> escreve itens, empenhos, empenhos_grupos, NFs, nf_itens, nf_empenhos
+--   campus -> insere recibos do próprio campus e itens nesses recibos
+--   outros -> somente leitura (dashboard/consultas)
+do $pol$
 declare t text;
 begin
+  -- remove policies anteriores (inclusive as do MVP)
   for t in select unnest(array[
     'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
     'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos','perfis'
@@ -320,17 +349,205 @@ begin
     execute format('drop policy if exists p_%s_select on public.%s', t, t);
     execute format('drop policy if exists p_%s_insert on public.%s', t, t);
     execute format('drop policy if exists p_%s_update on public.%s', t, t);
-    execute format(
-      'create policy p_%s_select on public.%s for select using (auth.role() = ''authenticated'')',
-      t, t
-    );
-    execute format(
-      'create policy p_%s_insert on public.%s for insert with check (auth.role() = ''authenticated'')',
-      t, t
-    );
-    execute format(
-      'create policy p_%s_update on public.%s for update using (auth.role() = ''authenticated'')',
-      t, t
-    );
+    execute format('drop policy if exists p_%s_delete on public.%s', t, t);
   end loop;
-end $$;
+
+  -- leitura geral autenticada (perfis tem regra própria abaixo)
+  for t in select unnest(array[
+    'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
+    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos'
+  ]) loop
+    execute format(
+      'create policy p_%s_select on public.%s for select to authenticated using (true)', t, t);
+  end loop;
+
+  -- escrita SANE/admin no núcleo operacional
+  for t in select unnest(array[
+    'itens','empenhos','empenhos_grupos','notas_fiscais','nf_itens','nf_empenhos'
+  ]) loop
+    execute format(
+      'create policy p_%s_insert on public.%s for insert to authenticated
+       with check (public.current_papel() in (''sane'',''admin''))', t, t);
+    execute format(
+      'create policy p_%s_update on public.%s for update to authenticated
+       using (public.current_papel() in (''sane'',''admin''))
+       with check (public.current_papel() in (''sane'',''admin''))', t, t);
+  end loop;
+
+  -- cadastros básicos: só admin escreve
+  for t in select unnest(array['campi','fornecedores','grupos']) loop
+    execute format(
+      'create policy p_%s_insert on public.%s for insert to authenticated
+       with check (public.current_papel() = ''admin'')', t, t);
+    execute format(
+      'create policy p_%s_update on public.%s for update to authenticated
+       using (public.current_papel() = ''admin'')
+       with check (public.current_papel() = ''admin'')', t, t);
+  end loop;
+
+  -- delete: só admin
+  for t in select unnest(array[
+    'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
+    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos'
+  ]) loop
+    execute format(
+      'create policy p_%s_delete on public.%s for delete to authenticated
+       using (public.current_papel() = ''admin'')', t, t);
+  end loop;
+end $pol$;
+
+-- Recibos: campus insere para o próprio campus; conferência/edição é da SANE.
+drop policy if exists p_recibos_insert on public.recibos;
+create policy p_recibos_insert on public.recibos for insert to authenticated
+  with check (
+    public.current_papel() in ('sane','admin')
+    or (public.current_papel() = 'campus' and campus_id = public.current_campus_id())
+  );
+drop policy if exists p_recibos_update on public.recibos;
+create policy p_recibos_update on public.recibos for update to authenticated
+  using (public.current_papel() in ('sane','admin'))
+  with check (public.current_papel() in ('sane','admin'));
+
+-- Itens de recibo: campus inclui itens em recibos do próprio campus.
+drop policy if exists p_recibos_itens_insert on public.recibos_itens;
+create policy p_recibos_itens_insert on public.recibos_itens for insert to authenticated
+  with check (
+    public.current_papel() in ('sane','admin')
+    or (
+      public.current_papel() = 'campus'
+      and exists (
+        select 1 from public.recibos r
+        where r.id = recibo_id and r.campus_id = public.current_campus_id()
+      )
+    )
+  );
+drop policy if exists p_recibos_itens_update on public.recibos_itens;
+create policy p_recibos_itens_update on public.recibos_itens for update to authenticated
+  using (public.current_papel() in ('sane','admin'))
+  with check (public.current_papel() in ('sane','admin'));
+
+-- Perfis: cada usuário vê o próprio; admin vê e administra todos.
+-- (insert só via trigger handle_new_user, que roda como owner.)
+drop policy if exists p_perfis_select on public.perfis;
+create policy p_perfis_select on public.perfis for select to authenticated
+  using (id = auth.uid() or public.current_papel() = 'admin');
+drop policy if exists p_perfis_update on public.perfis;
+create policy p_perfis_update on public.perfis for update to authenticated
+  using (public.current_papel() = 'admin')
+  with check (public.current_papel() = 'admin');
+drop policy if exists p_perfis_delete on public.perfis;
+create policy p_perfis_delete on public.perfis for delete to authenticated
+  using (public.current_papel() = 'admin');
+
+-- =========================================================
+-- 9) Views de apoio (security invoker: respeitam o RLS de quem consulta)
+-- =========================================================
+
+create or replace view public.vw_empenho_saldos
+with (security_invoker = on) as
+select
+  e.id, e.numero, e.data_emissao, e.fornecedor_id, e.status, e.observacoes,
+  f.codigo as fornecedor,
+  (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao)::numeric(14,2) as valor_liquido,
+  coalesce(d.debitado, 0)::numeric(14,2) as utilizado,
+  (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao - coalesce(d.debitado, 0))::numeric(14,2) as saldo
+from public.empenhos e
+left join public.fornecedores f on f.id = e.fornecedor_id
+left join (
+  select empenho_id, sum(valor_debitado) as debitado
+  from public.nf_empenhos group by empenho_id
+) d on d.empenho_id = e.id;
+
+create or replace view public.vw_grupo_resumo
+with (security_invoker = on) as
+select
+  g.id as grupo_id, g.nome, g.numero_arabico, g.numero_romano, g.categoria, g.status,
+  f.codigo as fornecedor,
+  coalesce(a.alocado, 0)::numeric(14,2) as alocado,
+  coalesce(u.utilizado, 0)::numeric(14,2) as utilizado,
+  (coalesce(a.alocado, 0) - coalesce(u.utilizado, 0))::numeric(14,2) as saldo,
+  coalesce(n.qtd_nfs, 0) as qtd_nfs
+from public.grupos g
+left join public.fornecedores f on f.id = g.fornecedor_id
+left join (
+  select grupo_id, sum(valor_alocado) as alocado
+  from public.empenhos_grupos group by grupo_id
+) a on a.grupo_id = g.id
+left join (
+  select nf.grupo_id, sum(ne.valor_debitado) as utilizado
+  from public.nf_empenhos ne
+  join public.notas_fiscais nf on nf.id = ne.nf_id
+  group by nf.grupo_id
+) u on u.grupo_id = g.id
+left join (
+  select grupo_id, count(*) as qtd_nfs
+  from public.notas_fiscais group by grupo_id
+) n on n.grupo_id = g.id;
+
+-- =========================================================
+-- 10) Distribuição FIFO de NF entre empenhos do grupo
+-- =========================================================
+-- Distribui o valor_total da NF entre os empenhos ATIVOS do grupo, do mais
+-- antigo para o mais novo, limitado ao saldo de cada um. Roda com privilégios
+-- do chamador (security invoker): só SANE/admin passam pelo RLS de nf_empenhos.
+-- Falha com exception (e rollback) se o saldo do grupo for insuficiente.
+
+create or replace function public.distribute_nf_fifo(p_nf_id bigint)
+returns setof public.nf_empenhos
+language plpgsql
+as $fifo$
+declare
+  v_nf record;
+  v_emp record;
+  v_ja numeric;
+  v_restante numeric;
+  v_take numeric;
+begin
+  select * into v_nf from public.notas_fiscais where id = p_nf_id;
+  if not found then
+    raise exception 'NF % nao encontrada', p_nf_id;
+  end if;
+  if v_nf.valor_total is null or v_nf.valor_total <= 0 then
+    raise exception 'NF % sem valor_total definido', p_nf_id;
+  end if;
+
+  select coalesce(sum(valor_debitado), 0) into v_ja
+  from public.nf_empenhos where nf_id = p_nf_id;
+
+  v_restante := v_nf.valor_total - v_ja;
+  if v_restante <= 0 then
+    return query select * from public.nf_empenhos where nf_id = p_nf_id;
+    return;
+  end if;
+
+  for v_emp in
+    select e.id,
+           (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao
+            - coalesce((select sum(x.valor_debitado)
+                        from public.nf_empenhos x where x.empenho_id = e.id), 0)) as saldo
+    from public.empenhos e
+    join public.empenhos_grupos eg
+      on eg.empenho_id = e.id and eg.grupo_id = v_nf.grupo_id
+    where e.status = 'ativo'
+    order by e.data_emissao asc, e.id asc
+    for update of e
+  loop
+    exit when v_restante <= 0;
+    if v_emp.saldo > 0 then
+      v_take := least(v_emp.saldo, v_restante);
+      insert into public.nf_empenhos (nf_id, empenho_id, valor_debitado, observacoes)
+      values (p_nf_id, v_emp.id, v_take, 'Distribuicao FIFO')
+      on conflict (nf_id, empenho_id) do update
+        set valor_debitado = public.nf_empenhos.valor_debitado + excluded.valor_debitado;
+      v_restante := v_restante - v_take;
+    end if;
+  end loop;
+
+  if v_restante > 0 then
+    raise exception 'Saldo insuficiente nos empenhos ativos do grupo % para a NF %: faltam R$ %',
+      v_nf.grupo_id, v_nf.numero, v_restante;
+  end if;
+
+  return query select * from public.nf_empenhos where nf_id = p_nf_id;
+end;
+$fifo$;

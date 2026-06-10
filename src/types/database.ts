@@ -156,11 +156,43 @@ export interface NFItem {
   observacoes: string | null;
 }
 
+export type Papel = "campus" | "sane" | "admin" | "outros";
+
 export interface Perfil {
   id: string;
   nome: string;
-  papel: "campus" | "sane" | "admin";
+  email: string | null;
+  papel: Papel;
   campus_id: number | null;
   created_at: string;
   updated_at: string;
+}
+
+/** View vw_empenho_saldos — saldo calculado por empenho. */
+export interface VwEmpenhoSaldo {
+  id: number;
+  numero: string;
+  data_emissao: string;
+  fornecedor_id: number | null;
+  status: StatusEmpenho;
+  observacoes: string | null;
+  fornecedor: string | null;
+  valor_liquido: number;
+  utilizado: number;
+  saldo: number;
+}
+
+/** View vw_grupo_resumo — alocação x utilização por grupo. */
+export interface VwGrupoResumo {
+  grupo_id: number;
+  nome: string;
+  numero_arabico: number;
+  numero_romano: string;
+  categoria: string;
+  status: StatusGrupo;
+  fornecedor: string | null;
+  alocado: number;
+  utilizado: number;
+  saldo: number;
+  qtd_nfs: number;
 }

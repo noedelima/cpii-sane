@@ -24,8 +24,30 @@ A aplicação inicia em http://localhost:5173.
 1. Crie um projeto em https://supabase.com/dashboard
 2. Em **Project Settings > API** copie `Project URL` e `anon public` key
 3. Em **SQL Editor**, rode na ordem:
-   - `supabase/schema.sql` (cria as tabelas, índices, triggers e políticas RLS)
+   - `supabase/schema.sql` (tabelas, índices, triggers, RLS por papel, views e função FIFO)
    - `supabase/seed.sql` (popula campi, fornecedores e grupos)
+   - `supabase/storage.sql` (buckets de PDFs e policies)
+
+   Alternativa via CLI (requer `SUPABASE_DB_HOST`/`SUPABASE_DB_PASSWORD` no `.env.local`):
+   `node supabase/apply.mjs`
+
+### Scripts de manutenção (`supabase/`)
+
+- `apply.mjs` — aplica schema + seed + storage (idempotente)
+- `run-sql.mjs` — executa arquivos .sql ou `--query "..."` ad hoc
+- `import.mjs` — importa o Excel mestre legado (`--dry-run` / `--force`)
+- `db.mjs` — conexão compartilhada (fallback automático para pooler IPv4)
+
+### Papéis de acesso
+
+| Papel | Permissões |
+| --- | --- |
+| `admin` | tudo: usuários, cadastros básicos, exclusões |
+| `sane` | itens, empenhos, notas fiscais e rateios |
+| `campus` | recibos do próprio campus (e itens desses recibos) |
+| `outros` | somente visualização (padrão de novos usuários) |
+
+Novos usuários entram como `outros`; o admin promove em **Usuários** no app.
 
 ## Deploy
 
@@ -57,7 +79,7 @@ cpii-sane/
 
 ## Modelo de dados
 
-10 tabelas principais:
+11 tabelas principais:
 
 - **campi** — os 15 campi do CPII
 - **fornecedores** — empresas contratadas
@@ -68,7 +90,8 @@ cpii-sane/
 - **recibos** — recibos enviados pelos campi
 - **recibos_itens** — itens de cada recibo
 - **notas_fiscais** — NFs emitidas pelos fornecedores
-- **nf_itens** — itens de cada NF (com empenho debitado por linha)
+- **nf_itens** — itens de cada NF (quantidades físicas)
+- **nf_empenhos** — rateio financeiro N:N entre NF e empenhos (fonte de verdade do débito orçamentário; a função `distribute_nf_fifo` grava aqui)
 
 E uma tabela auxiliar:
 

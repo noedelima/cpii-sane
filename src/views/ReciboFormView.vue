@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { useAuthStore } from "@/stores/auth";
+import PdfUpload from "@/components/PdfUpload.vue";
 import type { Campus, Grupo, Item } from "@/types/database";
 
 interface LinhaItem {
@@ -12,6 +14,7 @@ interface LinhaItem {
 }
 
 const router = useRouter();
+const auth = useAuthStore();
 
 const campi = ref<Campus[]>([]);
 const grupos = ref<Grupo[]>([]);
@@ -22,6 +25,7 @@ const dataRecebimento = ref(new Date().toISOString().slice(0, 10));
 const campusId = ref<number | null>(null);
 const grupoId = ref<number | null>(null);
 const observacoes = ref("");
+const linkPdf = ref<string | null>(null);
 
 const itemId = ref<number | null>(null);
 const quantidade = ref<number | null>(null);
@@ -40,6 +44,10 @@ async function loadReferenceData() {
   ]);
   campi.value = (c.data as Campus[] | null) ?? [];
   grupos.value = (g.data as Grupo[] | null) ?? [];
+  // perfil campus: pré-seleciona (e trava) o próprio campus
+  if (auth.papel === "campus" && auth.perfil?.campus_id) {
+    campusId.value = auth.perfil.campus_id;
+  }
 }
 
 async function loadItensDoGrupo() {
@@ -87,6 +95,8 @@ async function salvar() {
         campus_id: campusId.value,
         grupo_id: grupoId.value,
         observacoes: observacoes.value || null,
+        link_pdf: linkPdf.value,
+        responsavel_user_id: auth.user?.id ?? null,
         status: "pendente",
       })
       .select("id")
@@ -131,7 +141,7 @@ onMounted(loadReferenceData);
         </div>
         <div>
           <label class="label">Campus</label>
-          <select v-model="campusId" class="input" required>
+          <select v-model="campusId" class="input" required :disabled="auth.papel === 'campus'">
             <option :value="null" disabled>Selecione…</option>
             <option v-for="c in campi" :key="c.id" :value="c.id">{{ c.nome }}</option>
           </select>
@@ -148,6 +158,7 @@ onMounted(loadReferenceData);
         <label class="label">Observações (opcional)</label>
         <textarea v-model="observacoes" rows="2" class="input"></textarea>
       </div>
+      <PdfUpload v-model="linkPdf" bucket="pdfs-recibos" label="PDF do recibo (opcional)" />
     </div>
 
     <div class="card p-5 space-y-4">
