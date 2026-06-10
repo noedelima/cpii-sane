@@ -36,18 +36,18 @@ onMounted(load);
       <RouterLink to="/recibos/novo" class="btn-primary">+ Novo recibo</RouterLink>
     </div>
 
-    <div v-if="error" class="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-4">
+    <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300 mb-4">
       {{ error }}
     </div>
 
     <div class="card overflow-hidden">
-      <div v-if="loading" class="p-6 text-center text-slate-500">Carregando…</div>
-      <div v-else-if="!recibos.length" class="p-6 text-center text-slate-500">
+      <div v-if="loading" class="p-6 text-center text-slate-500 dark:text-slate-400">Carregando…</div>
+      <div v-else-if="!recibos.length" class="p-6 text-center text-slate-500 dark:text-slate-400">
         Nenhum recibo cadastrado ainda.
-        <RouterLink to="/recibos/novo" class="text-cpii-600 hover:underline">Criar o primeiro</RouterLink>.
+        <RouterLink to="/recibos/novo" class="text-cpii-600 dark:text-cpii-300 hover:underline">Criar o primeiro</RouterLink>.
       </div>
       <table v-else class="w-full text-sm">
-        <thead class="bg-slate-50 text-slate-600 uppercase text-xs">
+        <thead class="bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs">
           <tr>
             <th class="px-4 py-2 text-left">Nº</th>
             <th class="px-4 py-2 text-left">Data</th>
@@ -56,8 +56,8 @@ onMounted(load);
             <th class="px-4 py-2 text-left">Status</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-200">
-          <tr v-for="r in recibos" :key="r.id" class="hover:bg-slate-50">
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+          <tr v-for="r in recibos" :key="r.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
             <td class="px-4 py-2 font-medium">{{ r.numero }}</td>
             <td class="px-4 py-2">{{ r.data_recebimento }}</td>
             <td class="px-4 py-2">{{ r.campi?.nome ?? "—" }}</td>

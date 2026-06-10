@@ -8,7 +8,15 @@
     <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
     <title>SANE — Controle de Empenhos e NFs · Colégio Pedro II</title>
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased">
+  <body class="bg-slate-50 text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-100">
+    <script>
+      // aplica o tema antes do app montar (evita flash)
+      try {
+        var t = localStorage.getItem("sane-theme");
+        var dark = t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (dark) document.documentElement.classList.add("dark");
+      } catch (e) {}
+    </script>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -470,6 +470,15 @@ drop policy if exists p_perfis_delete on public.perfis;
 create policy p_perfis_delete on public.perfis for delete to authenticated
   using (public.current_papel() = 'admin');
 
+-- Atestes: SANE também pode excluir (ateste emitido por engano — a exclusão
+-- libera as NFs para novo ateste). Override do padrão "delete só admin".
+drop policy if exists p_atestes_delete on public.atestes;
+create policy p_atestes_delete on public.atestes for delete to authenticated
+  using (public.current_papel() in ('sane','admin'));
+drop policy if exists p_atestes_nfs_delete on public.atestes_nfs;
+create policy p_atestes_nfs_delete on public.atestes_nfs for delete to authenticated
+  using (public.current_papel() in ('sane','admin'));
+
 -- =========================================================
 -- 9) Views de apoio (security invoker: respeitam o RLS de quem consulta)
 -- =========================================================

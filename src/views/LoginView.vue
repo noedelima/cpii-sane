@@ -47,21 +47,21 @@ async function submitLink() {
   <div class="mx-auto max-w-md px-4 py-12">
     <div class="card p-6">
       <h1 class="text-xl font-semibold mb-1">Entrar</h1>
-      <p class="text-sm text-slate-500 mb-4">
+      <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">
         Use seu e-mail institucional para acessar o sistema.
       </p>
 
-      <div class="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 mb-5 text-sm">
+      <div class="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 dark:bg-slate-700 p-1 mb-5 text-sm">
         <button
           type="button"
           class="rounded-md py-1.5 font-medium transition-colors"
-          :class="mode === 'senha' ? 'bg-white shadow text-cpii-700' : 'text-slate-600 hover:text-slate-900'"
+          :class="mode === 'senha' ? 'bg-white dark:bg-slate-800 shadow text-cpii-700 dark:text-cpii-300' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'"
           @click="mode = 'senha'; error = null"
         >Senha</button>
         <button
           type="button"
           class="rounded-md py-1.5 font-medium transition-colors"
-          :class="mode === 'link' ? 'bg-white shadow text-cpii-700' : 'text-slate-600 hover:text-slate-900'"
+          :class="mode === 'link' ? 'bg-white dark:bg-slate-800 shadow text-cpii-700 dark:text-cpii-300' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'"
           @click="mode = 'link'; error = null"
         >Link por e-mail</button>
       </div>
@@ -93,7 +93,7 @@ async function submitLink() {
         <button type="submit" :disabled="sending || !email || !password" class="btn-primary w-full">
           {{ sending ? "Entrando…" : "Entrar" }}
         </button>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
       </form>
 
       <template v-else>
@@ -113,13 +113,13 @@ async function submitLink() {
           <button type="submit" :disabled="sending || !email" class="btn-primary w-full">
             {{ sending ? "Enviando…" : "Enviar link de acesso" }}
           </button>
-          <p class="text-xs text-slate-500">
+          <p class="text-xs text-slate-500 dark:text-slate-400">
             Obs.: o envio depende do serviço de e-mail configurado; se o link não
             chegar, use o acesso por senha.
           </p>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
         </form>
-        <div v-else class="text-sm text-slate-700">
+        <div v-else class="text-sm text-slate-700 dark:text-slate-200">
           Pronto! Verifique sua caixa de e-mail e clique no link recebido para entrar.
         </div>
       </template>

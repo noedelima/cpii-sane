@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
+import { isDark, toggleTheme } from "@/lib/theme";
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -70,7 +71,7 @@ const navItems = computed(() => {
 
 <template>
   <div class="min-h-screen flex flex-col">
-    <header class="bg-cpii-600 text-white shadow">
+    <header class="bg-cpii-600 dark:bg-cpii-900 text-white shadow">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3">
         <RouterLink to="/" class="flex items-center gap-2.5 font-semibold text-lg tracking-tight shrink-0">
           <span class="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 shadow-sm">
@@ -95,7 +96,21 @@ const navItems = computed(() => {
           >Usuários</RouterLink>
         </nav>
 
-        <div class="text-sm relative">
+        <div class="text-sm relative flex items-center gap-1">
+          <button
+            class="rounded-md p-1.5 hover:bg-cpii-700 transition-colors"
+            :title="isDark ? 'Tema claro' : 'Tema escuro'"
+            @click="toggleTheme()"
+          >
+            <svg v-if="isDark" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+            <svg v-else class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          </button>
           <template v-if="auth.user">
             <button
               class="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-cpii-700 transition-colors"
@@ -114,12 +129,12 @@ const navItems = computed(() => {
             </button>
             <div
               v-if="userMenuOpen"
-              class="absolute right-0 mt-2 w-48 card py-1 text-slate-700 z-20"
+              class="absolute right-0 mt-2 w-48 card py-1 text-slate-700 dark:text-slate-200 z-20"
             >
-              <button class="w-full text-left px-4 py-2 text-sm hover:bg-slate-50" @click="openPwdModal">
+              <button class="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700/40" @click="openPwdModal">
                 Trocar senha
               </button>
-              <button class="w-full text-left px-4 py-2 text-sm hover:bg-slate-50" @click="sair">
+              <button class="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700/40" @click="sair">
                 Sair
               </button>
             </div>
@@ -148,24 +163,24 @@ const navItems = computed(() => {
     </header>
 
     <main class="flex-1" @click="userMenuOpen = false">
-      <div v-if="auth.loading" class="flex items-center justify-center py-20 text-slate-500">
+      <div v-if="auth.loading" class="flex items-center justify-center py-20 text-slate-500 dark:text-slate-400">
         Carregando…
       </div>
       <RouterView v-else />
     </main>
 
-    <footer class="border-t border-slate-200 py-4 text-center text-xs text-slate-500">
+    <footer class="border-t border-slate-200 dark:border-slate-700 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
       SANE — Colégio Pedro II · v0.2.0
     </footer>
 
     <!-- Modal: trocar senha -->
     <div
       v-if="pwdModalOpen"
-      class="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 px-4"
+      class="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 dark:bg-black/70 px-4"
       @click.self="pwdModalOpen = false"
     >
       <div class="card w-full max-w-sm p-5 space-y-4">
-        <h2 class="font-semibold text-slate-800">Trocar senha</h2>
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Trocar senha</h2>
         <div>
           <label class="label">Nova senha</label>
           <input v-model="newPwd" type="password" class="input" autocomplete="new-password" />
@@ -174,8 +189,8 @@ const navItems = computed(() => {
           <label class="label">Repetir nova senha</label>
           <input v-model="newPwd2" type="password" class="input" autocomplete="new-password" />
         </div>
-        <p v-if="pwdError" class="text-sm text-red-600">{{ pwdError }}</p>
-        <p v-if="pwdOk" class="text-sm text-green-700">Senha alterada com sucesso.</p>
+        <p v-if="pwdError" class="text-sm text-red-600 dark:text-red-400">{{ pwdError }}</p>
+        <p v-if="pwdOk" class="text-sm text-green-700 dark:text-green-300">Senha alterada com sucesso.</p>
         <div class="flex justify-end gap-2">
           <button class="btn-ghost" @click="pwdModalOpen = false">Cancelar</button>
           <button class="btn-primary" :disabled="pwdSaving" @click="savePwd">

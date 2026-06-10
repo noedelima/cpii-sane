@@ -51,10 +51,10 @@ const totais = computed(() => {
 });
 
 const statusClasse: Record<string, string> = {
-  ativo: "bg-green-50 text-green-700 border-green-200",
-  esgotado: "bg-amber-50 text-amber-700 border-amber-200",
-  cancelado: "bg-slate-100 text-slate-600 border-slate-200",
-  anulado: "bg-red-50 text-red-700 border-red-200",
+  ativo: "bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300 border-green-200 dark:border-green-900",
+  esgotado: "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900",
+  cancelado: "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
+  anulado: "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900",
 };
 
 onMounted(load);
@@ -85,17 +85,17 @@ onMounted(load);
       </select>
     </div>
 
-    <div v-if="error" class="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-4">
+    <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300 mb-4">
       {{ error }}
     </div>
 
     <div class="card overflow-x-auto">
-      <div v-if="loading" class="p-6 text-center text-slate-500">Carregando…</div>
-      <div v-else-if="!filtrados.length" class="p-6 text-center text-slate-500">
+      <div v-if="loading" class="p-6 text-center text-slate-500 dark:text-slate-400">Carregando…</div>
+      <div v-else-if="!filtrados.length" class="p-6 text-center text-slate-500 dark:text-slate-400">
         Nenhum empenho encontrado.
       </div>
       <table v-else class="w-full text-sm min-w-[52rem]">
-        <thead class="bg-slate-50 text-slate-600 uppercase text-xs">
+        <thead class="bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs">
           <tr>
             <th class="px-4 py-2 text-left">Número</th>
             <th class="px-4 py-2 text-left">Emissão</th>
@@ -106,13 +106,13 @@ onMounted(load);
             <th class="px-4 py-2 text-left">Status</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-200">
-          <tr v-for="e in filtrados" :key="e.id" class="hover:bg-slate-50">
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+          <tr v-for="e in filtrados" :key="e.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
             <td class="px-4 py-2 font-medium">
               <RouterLink
                 v-if="auth.isSane"
                 :to="`/empenhos/${e.id}`"
-                class="text-cpii-600 hover:underline"
+                class="text-cpii-600 dark:text-cpii-300 hover:underline"
               >{{ e.numero }}</RouterLink>
               <template v-else>{{ e.numero }}</template>
             </td>
@@ -122,17 +122,17 @@ onMounted(load);
             <td class="px-4 py-2 text-right tabular-nums">{{ fmtMoney(e.utilizado) }}</td>
             <td
               class="px-4 py-2 text-right tabular-nums font-medium"
-              :class="Number(e.saldo) < 0 ? 'text-red-600' : 'text-slate-900'"
+              :class="Number(e.saldo) < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'"
             >{{ fmtMoney(e.saldo) }}</td>
             <td class="px-4 py-2">
               <span
                 class="inline-block rounded-full border px-2 py-0.5 text-xs capitalize"
-                :class="statusClasse[e.status] ?? 'bg-slate-100 text-slate-600'"
+                :class="statusClasse[e.status] ?? 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
               >{{ e.status }}</span>
             </td>
           </tr>
         </tbody>
-        <tfoot class="bg-slate-50 font-medium">
+        <tfoot class="bg-slate-50 dark:bg-slate-700/50 font-medium">
           <tr>
             <td class="px-4 py-2" colspan="3">Totais ({{ filtrados.length }} empenhos)</td>
             <td class="px-4 py-2 text-right tabular-nums">{{ fmtMoney(totais.liquido) }}</td>

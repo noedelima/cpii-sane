@@ -113,23 +113,23 @@ onMounted(load);
   <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8">
     <div class="mb-6">
       <h1 class="text-2xl font-semibold">Usuários</h1>
-      <p class="text-sm text-slate-500 mt-1">
+      <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
         Novos usuários entram como <strong>Outros</strong> (somente visualização) ao se
         cadastrarem pelo login. Defina aqui o papel e, para o papel Campus, o campus vinculado.
       </p>
     </div>
 
-    <div v-if="error" class="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-4">
+    <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300 mb-4">
       {{ error }}
     </div>
 
     <div class="card overflow-x-auto">
-      <div v-if="loading" class="p-6 text-center text-slate-500">Carregando…</div>
-      <div v-else-if="!perfis.length" class="p-6 text-center text-slate-500">
+      <div v-if="loading" class="p-6 text-center text-slate-500 dark:text-slate-400">Carregando…</div>
+      <div v-else-if="!perfis.length" class="p-6 text-center text-slate-500 dark:text-slate-400">
         Nenhum usuário cadastrado ainda.
       </div>
       <table v-else class="w-full text-sm min-w-[44rem]">
-        <thead class="bg-slate-50 text-slate-600 uppercase text-xs">
+        <thead class="bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs">
           <tr>
             <th class="px-4 py-2 text-left">Nome</th>
             <th class="px-4 py-2 text-left">E-mail</th>
@@ -138,12 +138,12 @@ onMounted(load);
             <th class="px-4 py-2"></th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-200">
-          <tr v-for="p in perfis" :key="p.id" class="hover:bg-slate-50 align-top">
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+          <tr v-for="p in perfis" :key="p.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/40 align-top">
             <td class="px-4 py-2 min-w-[12rem]">
               <input v-model="p.nome" type="text" class="input" />
             </td>
-            <td class="px-4 py-2 text-slate-600">{{ p.email ?? "—" }}</td>
+            <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{ p.email ?? "—" }}</td>
             <td class="px-4 py-2">
               <select v-model="p.papel" class="input">
                 <option v-for="op in papeis" :key="op.value" :value="op.value">
@@ -168,7 +168,7 @@ onMounted(load);
       </table>
     </div>
 
-    <p class="text-xs text-slate-500 mt-3">
+    <p class="text-xs text-slate-500 dark:text-slate-400 mt-3">
       O cadastro de novos usuários é feito pelo próprio servidor na tela de login
       (link por e-mail) ou pelo administrador no painel do Supabase. Como o e-mail
       institucional nem sempre recebe o link, use <strong>Definir senha</strong> para
@@ -178,14 +178,14 @@ onMounted(load);
     <!-- Modal: definir senha de usuário -->
     <div
       v-if="pwdUser"
-      class="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 px-4"
+      class="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 dark:bg-black/70 px-4"
       @click.self="pwdUser = null"
     >
       <div class="card w-full max-w-md p-5 space-y-4">
-        <h2 class="font-semibold text-slate-800">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">
           Definir senha — {{ pwdUser.nome }}
         </h2>
-        <p class="text-sm text-slate-600">
+        <p class="text-sm text-slate-600 dark:text-slate-300">
           {{ pwdUser.email ?? "—" }}
         </p>
 
@@ -197,11 +197,11 @@ onMounted(load);
               <button type="button" class="btn-secondary shrink-0" @click="pwdValue = gerarSenha()">↻</button>
             </div>
           </div>
-          <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2">
+          <p class="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-md p-2">
             Anote e repasse a senha ao servidor por canal seguro. Ela não poderá ser
             consultada depois — apenas redefinida. O e-mail é confirmado automaticamente.
           </p>
-          <p v-if="pwdError" class="text-sm text-red-600">{{ pwdError }}</p>
+          <p v-if="pwdError" class="text-sm text-red-600 dark:text-red-400">{{ pwdError }}</p>
           <div class="flex justify-end gap-2">
             <button class="btn-ghost" @click="pwdUser = null">Cancelar</button>
             <button class="btn-primary" :disabled="pwdSaving" @click="confirmarPwd">
@@ -211,10 +211,10 @@ onMounted(load);
         </template>
 
         <template v-else>
-          <div class="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">
+          <div class="rounded-md bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 p-3 text-sm text-green-800 dark:text-green-200">
             Senha definida com sucesso. Copie e repasse ao servidor:
             <div class="mt-2 flex items-center gap-2">
-              <code class="bg-white border border-green-200 rounded px-2 py-1 font-mono text-sm">{{ pwdValue }}</code>
+              <code class="bg-white dark:bg-slate-800 border border-green-200 dark:border-green-900 rounded px-2 py-1 font-mono text-sm">{{ pwdValue }}</code>
               <button class="btn-secondary" @click="copiarSenha">
                 {{ copiado ? "Copiado ✓" : "Copiar" }}
               </button>

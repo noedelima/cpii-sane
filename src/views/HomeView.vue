@@ -65,7 +65,7 @@ const cards = computed<CardDef[]>(() => [
     <div v-if="!auth.user" class="card p-10 text-center">
       <img :src="logoUrl" alt="Colégio Pedro II" class="mx-auto h-28 w-28 object-contain mb-5" />
       <h1 class="text-2xl font-semibold mb-3">Controle de Empenhos da SANE</h1>
-      <p class="text-slate-600 mb-6 max-w-xl mx-auto">
+      <p class="text-slate-600 dark:text-slate-300 mb-6 max-w-xl mx-auto">
         Sistema interno do Colégio Pedro II para registro e acompanhamento de empenhos,
         notas fiscais e recibos de gêneros alimentícios.
       </p>
@@ -77,7 +77,7 @@ const cards = computed<CardDef[]>(() => [
         <img :src="logoUrl" alt="Colégio Pedro II" class="h-14 w-14 object-contain" />
         <div>
           <h1 class="text-2xl font-semibold leading-tight">Painel</h1>
-          <p class="text-sm text-slate-500">
+          <p class="text-sm text-slate-500 dark:text-slate-400">
             Olá, {{ auth.perfil?.nome ?? "—" }}. O que vamos fazer hoje?
           </p>
         </div>
@@ -90,9 +90,9 @@ const cards = computed<CardDef[]>(() => [
           :to="c.to"
           class="card p-5 hover:border-cpii-500 hover:shadow-md transition-all block"
         >
-          <div class="text-cpii-600 text-sm font-medium mb-1">{{ c.titulo }}</div>
+          <div class="text-cpii-600 dark:text-cpii-300 text-sm font-medium mb-1">{{ c.titulo }}</div>
           <div class="text-lg font-semibold">{{ c.acao }}</div>
-          <p class="text-sm text-slate-500 mt-1">{{ c.descricao }}</p>
+          <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">{{ c.descricao }}</p>
         </RouterLink>
       </div>
     </div>

@@ -200,11 +200,11 @@ onMounted(async () => {
       {{ editMode ? `Empenho ${numero || "…"}` : "Novo empenho" }}
     </h1>
 
-    <div v-if="loading" class="card p-6 text-center text-slate-500">Carregando…</div>
+    <div v-if="loading" class="card p-6 text-center text-slate-500 dark:text-slate-400">Carregando…</div>
 
     <template v-else>
       <div class="card p-5 space-y-4">
-        <h2 class="font-medium text-slate-700">Identificação</h2>
+        <h2 class="font-medium text-slate-700 dark:text-slate-200">Identificação</h2>
         <div class="grid sm:grid-cols-2 gap-4">
           <div>
             <label class="label">Nº do empenho (NE)</label>
@@ -241,7 +241,7 @@ onMounted(async () => {
       </div>
 
       <div class="card p-5 space-y-4">
-        <h2 class="font-medium text-slate-700">Valores</h2>
+        <h2 class="font-medium text-slate-700 dark:text-slate-200">Valores</h2>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
             <label class="label">Valor inicial</label>
@@ -260,18 +260,18 @@ onMounted(async () => {
             <input v-model.number="anulacao" type="number" step="0.01" min="0" class="input" />
           </div>
         </div>
-        <p class="text-sm text-slate-600">
+        <p class="text-sm text-slate-600 dark:text-slate-300">
           Valor líquido: <strong class="tabular-nums">{{ fmtMoney(valorLiquido) }}</strong>
         </p>
       </div>
 
       <div class="card p-5 space-y-4">
         <div class="flex items-center justify-between">
-          <h2 class="font-medium text-slate-700">Alocação por grupo</h2>
+          <h2 class="font-medium text-slate-700 dark:text-slate-200">Alocação por grupo</h2>
           <button type="button" class="btn-secondary" @click="addAlocacao">+ Grupo</button>
         </div>
 
-        <p v-if="!alocacoes.length" class="text-sm text-slate-500">
+        <p v-if="!alocacoes.length" class="text-sm text-slate-500 dark:text-slate-400">
           Nenhum grupo alocado. Adicione ao menos um para que o empenho apareça
           na distribuição FIFO das notas fiscais.
         </p>
@@ -295,17 +295,17 @@ onMounted(async () => {
           <div class="sm:col-span-1 pb-1.5">
             <button
               type="button"
-              class="text-red-600 text-xs hover:underline"
+              class="text-red-600 dark:text-red-400 text-xs hover:underline"
               @click="removeAlocacao(idx)"
             >remover</button>
           </div>
         </div>
 
-        <p v-if="alocacoes.length" class="text-sm text-slate-600">
+        <p v-if="alocacoes.length" class="text-sm text-slate-600 dark:text-slate-300">
           Soma alocada: <strong class="tabular-nums">{{ fmtMoney(somaAlocada) }}</strong>
           <span
             v-if="Math.abs(somaAlocada - valorLiquido) > 0.01"
-            class="text-amber-600 ml-2"
+            class="text-amber-600 dark:text-amber-400 ml-2"
           >difere do valor líquido ({{ fmtMoney(valorLiquido) }})</span>
         </p>
       </div>
@@ -315,7 +315,7 @@ onMounted(async () => {
         <textarea v-model="observacoes" rows="3" class="input"></textarea>
       </div>
 
-      <div v-if="error" class="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+      <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300">
         {{ error }}
       </div>
 

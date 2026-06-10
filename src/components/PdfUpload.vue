@@ -85,7 +85,7 @@ function remover() {
         :href="signedUrl"
         target="_blank"
         rel="noopener"
-        class="text-cpii-600 hover:underline inline-flex items-center gap-1"
+        class="text-cpii-600 dark:text-cpii-300 hover:underline inline-flex items-center gap-1"
       >
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -93,8 +93,8 @@ function remover() {
         </svg>
         Ver PDF
       </a>
-      <span v-else class="text-slate-500">PDF anexado</span>
-      <button type="button" class="text-red-600 text-xs hover:underline" @click="remover">
+      <span v-else class="text-slate-500 dark:text-slate-400">PDF anexado</span>
+      <button type="button" class="text-red-600 dark:text-red-400 text-xs hover:underline" @click="remover">
         remover
       </button>
     </div>
@@ -104,6 +104,6 @@ function remover() {
       <input type="file" accept="application/pdf" class="hidden" :disabled="uploading" @change="onFile" />
     </label>
 
-    <p v-if="error" class="text-xs text-red-600 mt-1">{{ error }}</p>
+    <p v-if="error" class="text-xs text-red-600 dark:text-red-400 mt-1">{{ error }}</p>
   </div>
 </template>

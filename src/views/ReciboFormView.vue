@@ -129,7 +129,7 @@ onMounted(loadReferenceData);
     <h1 class="text-2xl font-semibold">Novo recibo</h1>
 
     <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-slate-700">Cabeçalho</h2>
+      <h2 class="font-medium text-slate-700 dark:text-slate-200">Cabeçalho</h2>
       <div class="grid sm:grid-cols-2 gap-4">
         <div>
           <label class="label">Nº do recibo</label>
@@ -162,7 +162,7 @@ onMounted(loadReferenceData);
     </div>
 
     <div class="card p-5 space-y-4">
-      <h2 class="font-medium text-slate-700">Itens entregues</h2>
+      <h2 class="font-medium text-slate-700 dark:text-slate-200">Itens entregues</h2>
       <div class="grid sm:grid-cols-12 gap-3 items-end">
         <div class="sm:col-span-6">
           <label class="label">Item</label>
@@ -175,7 +175,7 @@ onMounted(loadReferenceData);
         </div>
         <div class="sm:col-span-2">
           <label class="label">Unidade</label>
-          <input :value="itemAtual?.unidade ?? ''" type="text" class="input bg-slate-50" disabled />
+          <input :value="itemAtual?.unidade ?? ''" type="text" class="input bg-slate-50 dark:bg-slate-700/50" disabled />
         </div>
         <div class="sm:col-span-2">
           <label class="label">Quantidade</label>
@@ -186,9 +186,9 @@ onMounted(loadReferenceData);
         </div>
       </div>
 
-      <div v-if="linhas.length" class="border-t border-slate-200 pt-4">
+      <div v-if="linhas.length" class="border-t border-slate-200 dark:border-slate-700 pt-4">
         <table class="w-full text-sm">
-          <thead class="text-xs text-slate-500 uppercase">
+          <thead class="text-xs text-slate-500 dark:text-slate-400 uppercase">
             <tr>
               <th class="text-left py-1">Item</th>
               <th class="text-right py-1">Qtd</th>
@@ -196,22 +196,22 @@ onMounted(loadReferenceData);
               <th class="py-1"></th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-200">
+          <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
             <tr v-for="(l, idx) in linhas" :key="idx">
               <td class="py-2">{{ l.descricao }}</td>
               <td class="py-2 text-right tabular-nums">{{ l.quantidade }}</td>
               <td class="py-2 pl-3">{{ l.unidade }}</td>
               <td class="py-2 text-right">
-                <button @click="removerLinha(idx)" class="text-red-600 text-xs hover:underline">remover</button>
+                <button @click="removerLinha(idx)" class="text-red-600 dark:text-red-400 text-xs hover:underline">remover</button>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <p v-else class="text-sm text-slate-500">Nenhum item adicionado.</p>
+      <p v-else class="text-sm text-slate-500 dark:text-slate-400">Nenhum item adicionado.</p>
     </div>
 
-    <div v-if="error" class="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">{{ error }}</div>
+    <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300">{{ error }}</div>
 
     <div class="flex justify-end gap-2">
       <button @click="router.back()" type="button" class="btn-ghost">Cancelar</button>

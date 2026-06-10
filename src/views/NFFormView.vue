@@ -238,11 +238,11 @@ onMounted(async () => {
       {{ editMode ? `NF ${numero || "…"}` : "Nova nota fiscal" }}
     </h1>
 
-    <div v-if="loading" class="card p-6 text-center text-slate-500">Carregando…</div>
+    <div v-if="loading" class="card p-6 text-center text-slate-500 dark:text-slate-400">Carregando…</div>
 
     <template v-else>
       <div class="card p-5 space-y-4">
-        <h2 class="font-medium text-slate-700">Cabeçalho</h2>
+        <h2 class="font-medium text-slate-700 dark:text-slate-200">Cabeçalho</h2>
         <div class="grid sm:grid-cols-2 gap-4">
           <div>
             <label class="label">Nº da NF</label>
@@ -286,7 +286,7 @@ onMounted(async () => {
             <input v-model="dataAberturaProcesso" type="date" class="input" />
           </div>
           <PdfUpload v-model="linkPdf" bucket="pdfs-nfs" label="PDF da nota fiscal" />
-          <div v-if="grupoAtual" class="text-sm text-slate-600 self-end pb-2">
+          <div v-if="grupoAtual" class="text-sm text-slate-600 dark:text-slate-300 self-end pb-2">
             Fornecedor do grupo: <strong>{{ grupoAtual.nome.split("-").pop()?.trim() }}</strong>
           </div>
         </div>
@@ -304,7 +304,7 @@ onMounted(async () => {
 
       <div v-if="editMode" class="card p-5 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <h2 class="font-medium text-slate-700">Débito em empenhos</h2>
+          <h2 class="font-medium text-slate-700 dark:text-slate-200">Débito em empenhos</h2>
           <button
             type="button"
             class="btn-primary"
@@ -315,23 +315,23 @@ onMounted(async () => {
           </button>
         </div>
 
-        <p class="text-sm text-slate-600">
+        <p class="text-sm text-slate-600 dark:text-slate-300">
           Valor da NF: <strong class="tabular-nums">{{ fmtMoney(valorTotal) }}</strong> ·
           Rateado: <strong class="tabular-nums">{{ fmtMoney(somaRateada) }}</strong> ·
-          <span :class="Math.abs(faltaRatear) < 0.01 ? 'text-green-700' : 'text-amber-600'">
+          <span :class="Math.abs(faltaRatear) < 0.01 ? 'text-green-700 dark:text-green-300' : 'text-amber-600 dark:text-amber-400'">
             {{ Math.abs(faltaRatear) < 0.01 ? "Conciliado ✓" : `Falta ratear ${fmtMoney(faltaRatear)}` }}
           </span>
         </p>
 
         <table v-if="rateios.length" class="w-full text-sm">
-          <thead class="text-xs text-slate-500 uppercase">
+          <thead class="text-xs text-slate-500 dark:text-slate-400 uppercase">
             <tr>
               <th class="text-left py-1">Empenho</th>
               <th class="text-right py-1">Valor debitado</th>
               <th class="py-1"></th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-200">
+          <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
             <tr v-for="r in rateios" :key="r.id">
               <td class="py-2 font-medium">{{ r.empenhos?.numero ?? r.empenho_id }}</td>
               <td class="py-2 text-right w-44">
@@ -347,18 +347,18 @@ onMounted(async () => {
               <td class="py-2 text-right w-20">
                 <button
                   v-if="auth.isAdmin"
-                  class="text-red-600 text-xs hover:underline"
+                  class="text-red-600 dark:text-red-400 text-xs hover:underline"
                   @click="removerRateio(r)"
                 >remover</button>
               </td>
             </tr>
           </tbody>
         </table>
-        <p v-else class="text-sm text-slate-500">
+        <p v-else class="text-sm text-slate-500 dark:text-slate-400">
           Nenhum débito lançado. Use “Distribuir FIFO” ou adicione manualmente.
         </p>
 
-        <div class="grid sm:grid-cols-12 gap-3 items-end border-t border-slate-200 pt-4">
+        <div class="grid sm:grid-cols-12 gap-3 items-end border-t border-slate-200 dark:border-slate-700 pt-4">
           <div class="sm:col-span-7">
             <label class="label">Empenho do grupo (saldo)</label>
             <select v-model="rateioEmpenhoId" class="input">
@@ -380,14 +380,14 @@ onMounted(async () => {
         </div>
       </div>
 
-      <p v-else class="text-sm text-slate-500">
+      <p v-else class="text-sm text-slate-500 dark:text-slate-400">
         Salve a NF para liberar o débito em empenhos (FIFO ou manual).
       </p>
 
-      <div v-if="aviso" class="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-700">
+      <div v-if="aviso" class="rounded-md bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 p-3 text-sm text-green-700 dark:text-green-300">
         {{ aviso }}
       </div>
-      <div v-if="error" class="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+      <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300">
         {{ error }}
       </div>
 

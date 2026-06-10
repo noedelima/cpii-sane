@@ -62,12 +62,12 @@ watch(busca, () => {
 watch(pagina, load);
 
 const statusClasse: Record<string, string> = {
-  rascunho: "bg-slate-100 text-slate-600 border-slate-200",
-  pendente: "bg-amber-50 text-amber-700 border-amber-200",
-  confirmado: "bg-blue-50 text-blue-700 border-blue-200",
-  pago: "bg-green-50 text-green-700 border-green-200",
-  glosado: "bg-purple-50 text-purple-700 border-purple-200",
-  cancelado: "bg-red-50 text-red-700 border-red-200",
+  rascunho: "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
+  pendente: "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900",
+  confirmado: "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-900",
+  pago: "bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300 border-green-200 dark:border-green-900",
+  glosado: "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-900",
+  cancelado: "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900",
 };
 
 onMounted(async () => {
@@ -98,17 +98,17 @@ onMounted(async () => {
       </select>
     </div>
 
-    <div v-if="error" class="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-4">
+    <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300 mb-4">
       {{ error }}
     </div>
 
     <div class="card overflow-x-auto">
-      <div v-if="loading" class="p-6 text-center text-slate-500">Carregando…</div>
-      <div v-else-if="!nfs.length" class="p-6 text-center text-slate-500">
+      <div v-if="loading" class="p-6 text-center text-slate-500 dark:text-slate-400">Carregando…</div>
+      <div v-else-if="!nfs.length" class="p-6 text-center text-slate-500 dark:text-slate-400">
         Nenhuma nota fiscal encontrada.
       </div>
       <table v-else class="w-full text-sm min-w-[56rem]">
-        <thead class="bg-slate-50 text-slate-600 uppercase text-xs">
+        <thead class="bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs">
           <tr>
             <th class="px-4 py-2 text-left">Número</th>
             <th class="px-4 py-2 text-left">Entrega</th>
@@ -118,20 +118,20 @@ onMounted(async () => {
             <th class="px-4 py-2 text-left">Status</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-200">
-          <tr v-for="n in nfs" :key="n.id" class="hover:bg-slate-50">
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+          <tr v-for="n in nfs" :key="n.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
             <td class="px-4 py-2 font-medium whitespace-nowrap">
               <RouterLink
                 v-if="auth.isSane"
                 :to="`/nfs/${n.id}`"
-                class="text-cpii-600 hover:underline"
+                class="text-cpii-600 dark:text-cpii-300 hover:underline"
               >{{ n.numero }}</RouterLink>
               <template v-else>{{ n.numero }}</template>
             </td>
             <td class="px-4 py-2 whitespace-nowrap">{{ fmtDate(n.data_entrega) }}</td>
             <td class="px-4 py-2">{{ n.grupos?.nome ?? "—" }}</td>
             <td class="px-4 py-2 text-right tabular-nums">{{ fmtMoney(n.valor_total) }}</td>
-            <td class="px-4 py-2 text-slate-600 max-w-[16rem] truncate" :title="n.processo_pagamento ?? ''">
+            <td class="px-4 py-2 text-slate-600 dark:text-slate-300 max-w-[16rem] truncate" :title="n.processo_pagamento ?? ''">
               {{ n.processo_pagamento ?? "—" }}
             </td>
             <td class="px-4 py-2">
@@ -145,7 +145,7 @@ onMounted(async () => {
       </table>
     </div>
 
-    <div class="flex items-center justify-between mt-4 text-sm text-slate-600">
+    <div class="flex items-center justify-between mt-4 text-sm text-slate-600 dark:text-slate-300">
       <span>{{ total }} notas · página {{ pagina + 1 }} de {{ Math.max(1, Math.ceil(total / PAGE)) }}</span>
       <div class="flex gap-2">
         <button class="btn-secondary" :disabled="pagina === 0" @click="pagina--">← Anterior</button>
