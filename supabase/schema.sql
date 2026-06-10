@@ -75,13 +75,25 @@ create table if not exists public.empenhos (
   reforco         numeric(14,2) not null default 0,
   cancelamento    numeric(14,2) not null default 0,
   anulacao        numeric(14,2) not null default 0,
-  processo_sei    text,
+  processo_suap   text,
   link_pdf        text,
   status          text not null default 'ativo' check (status in ('ativo','esgotado','cancelado','anulado')),
   observacoes     text,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
+
+-- Migração idempotente: renomeia processo_sei → processo_suap em bancos
+-- criados antes de 10/06/2026 (convenção institucional: SUAP, nunca SEI).
+do $mig$ begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'empenhos'
+      and column_name = 'processo_sei'
+  ) then
+    alter table public.empenhos rename column processo_sei to processo_suap;
+  end if;
+end $mig$;
 
 create table if not exists public.empenhos_grupos (
   id            bigserial primary key,
@@ -161,6 +173,10 @@ create table if not exists public.notas_fiscais (
 create index if not exists idx_nf_grupo on public.notas_fiscais(grupo_id);
 create index if not exists idx_nf_status on public.notas_fiscais(status);
 
+-- Migração idempotente: a coluna empenho_id existiu brevemente em 10/06/2026
+-- e foi substituída pela tabela nf_empenhos (rateio N:N, abaixo).
+alter table public.notas_fiscais drop column if exists empenho_id;
+
 -- Adiciona FK de recibos.nf_id agora que notas_fiscais existe
 do $$ begin
   alter table public.recibos
@@ -178,6 +194,20 @@ create table if not exists public.nf_itens (
   observacoes     text
 );
 create index if not exists idx_nf_itens_nf on public.nf_itens(nf_id);
+
+-- Rateio financeiro da NF entre empenhos (N:N) — fonte de verdade do débito
+-- orçamentário. NFs migradas do Excel só têm este nível (sem itens);
+-- NFs novas também detalham quantidades em nf_itens.
+create table if not exists public.nf_empenhos (
+  id              bigserial primary key,
+  nf_id           bigint not null references public.notas_fiscais(id) on delete cascade,
+  empenho_id      bigint not null references public.empenhos(id) on delete restrict,
+  valor_debitado  numeric(14,2) not null default 0,
+  observacoes     text,
+  unique (nf_id, empenho_id)
+);
+create index if not exists idx_nf_empenhos_nf on public.nf_empenhos(nf_id);
+create index if not exists idx_nf_empenhos_empenho on public.nf_empenhos(empenho_id);
 
 -- =========================================================
 -- 5) Perfis (relaciona auth.users a um papel + campus)
@@ -231,7 +261,53 @@ alter table public.recibos        enable row level security;
 alter table public.recibos_itens  enable row level security;
 alter table public.notas_fiscais  enable row level security;
 alter table public.nf_itens       enable row level security;
+alter table public.nf_empenhos    enable row level security;
 alter table public.perfis         enable row level security;
+
+-- =========================================================
+-- 8) Auto-criação de perfil ao cadastrar usuário no Auth
+-- =========================================================
+-- security definer: a inserção ocorre fora de sessão autenticada (signup),
+-- então precisa contornar o RLS de public.perfis de forma controlada.
+-- search_path fixo evita hijacking de função em schemas maliciosos.
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  insert into public.perfis (id, nome, papel)
+  values (
+    new.id,
+    coalesce(
+      nullif(trim(new.raw_user_meta_data ->> 'nome'), ''),
+      split_part(coalesce(new.email, ''), '@', 1)
+    ),
+    'campus'
+  )
+  on conflict (id) do nothing;
+  return new;
+end; $fn$;
+
+drop trigger if exists trg_on_auth_user_created on auth.users;
+create trigger trg_on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Backfill: usuários criados antes do trigger ganham perfil agora.
+insert into public.perfis (id, nome, papel)
+select
+  u.id,
+  coalesce(
+    nullif(trim(u.raw_user_meta_data ->> 'nome'), ''),
+    split_part(coalesce(u.email, ''), '@', 1)
+  ),
+  'campus'
+from auth.users u
+left join public.perfis p on p.id = u.id
+where p.id is null;
 
 -- MVP: todo usuário autenticado pode ler e inserir. Refinaremos depois.
 do $$
@@ -239,7 +315,7 @@ declare t text;
 begin
   for t in select unnest(array[
     'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
-    'recibos','recibos_itens','notas_fiscais','nf_itens','perfis'
+    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos','perfis'
   ]) loop
     execute format('drop policy if exists p_%s_select on public.%s', t, t);
     execute format('drop policy if exists p_%s_insert on public.%s', t, t);

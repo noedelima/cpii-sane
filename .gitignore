@@ -17,6 +17,9 @@ dist
 *.sln
 *.sw?
 
+# Dados institucionais locais (nunca commitar — repo público)
+tmp/
+
 # Build & misc
 *.tsbuildinfo
 .vite

@@ -79,7 +79,7 @@ export interface Empenho {
   reforco: number;
   cancelamento: number;
   anulacao: number;
-  processo_sei: string | null;
+  processo_suap: string | null;
   link_pdf: string | null;
   status: StatusEmpenho;
   observacoes: string | null;
@@ -135,6 +135,15 @@ export interface NotaFiscal {
   status: StatusDoc;
   created_at: string;
   updated_at: string;
+}
+
+/** Rateio financeiro da NF entre empenhos — fonte de verdade do débito orçamentário. */
+export interface NFEmpenho {
+  id: number;
+  nf_id: number;
+  empenho_id: number;
+  valor_debitado: number;
+  observacoes: string | null;
 }
 
 export interface NFItem {
