@@ -95,6 +95,7 @@ async function salvar(linha: LinhaPerfil) {
       papel: linha.papel,
       campus_id: linha.papel === "campus" ? linha.campus_id : linha.campus_id ?? null,
       nome: linha.nome,
+      matricula_siape: linha.matricula_siape?.trim() || null,
     })
     .eq("id", linha.id);
   linha._saving = false;
@@ -115,7 +116,8 @@ onMounted(load);
       <h1 class="text-2xl font-semibold">Usuários</h1>
       <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
         Novos usuários entram como <strong>Outros</strong> (somente visualização) ao se
-        cadastrarem pelo login. Defina aqui o papel e, para o papel Campus, o campus vinculado.
+        cadastrarem pelo login. Defina aqui o papel, a matrícula SIAPE (usada na
+        assinatura do ateste) e, para o papel Campus, o campus vinculado.
       </p>
     </div>
 
@@ -133,6 +135,7 @@ onMounted(load);
           <tr>
             <th class="px-4 py-2 text-left">Nome</th>
             <th class="px-4 py-2 text-left">E-mail</th>
+            <th class="px-4 py-2 text-left">SIAPE</th>
             <th class="px-4 py-2 text-left">Papel</th>
             <th class="px-4 py-2 text-left">Campus</th>
             <th class="px-4 py-2"></th>
@@ -144,6 +147,15 @@ onMounted(load);
               <input v-model="p.nome" type="text" class="input" />
             </td>
             <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{ p.email ?? "—" }}</td>
+            <td class="px-4 py-2 w-32">
+              <input
+                v-model="p.matricula_siape"
+                type="text"
+                class="input"
+                placeholder="—"
+                title="Matrícula SIAPE (sai na assinatura do ateste)"
+              />
+            </td>
             <td class="px-4 py-2">
               <select v-model="p.papel" class="input">
                 <option v-for="op in papeis" :key="op.value" :value="op.value">

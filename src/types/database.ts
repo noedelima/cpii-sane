@@ -170,6 +170,7 @@ export interface Ateste {
   qtd_nfs: number;
   gerado_por: string | null;
   gerado_por_nome: string | null;
+  gerado_por_matricula: string | null;
   created_at: string;
 }
 
@@ -183,6 +184,7 @@ export interface Perfil {
   id: string;
   nome: string;
   email: string | null;
+  matricula_siape: string | null;
   papel: Papel;
   campus_id: number | null;
   created_at: string;

@@ -14,6 +14,7 @@ export interface AtesteDocParams {
   localEmissao: string;
   observacoes: string | null;
   assinanteNome: string;
+  assinanteMatricula: string | null;
   logoDataUrl: string | null;
 }
 
@@ -224,7 +225,14 @@ export function montarPdfAteste(p: AtesteDocParams): {
   doc.text("Seção de Alimentação e Nutrição — SANE / Colégio Pedro II", W / 2, y + 9.6, {
     align: "center",
   });
-  doc.text("Matrícula SIAPE: ____________________", W / 2, y + 14, { align: "center" });
+  doc.text(
+    p.assinanteMatricula
+      ? `Matrícula SIAPE: ${p.assinanteMatricula}`
+      : "Matrícula SIAPE: ____________________",
+    W / 2,
+    y + 14,
+    { align: "center" }
+  );
 
   const pages = doc.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {

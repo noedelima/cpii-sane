@@ -186,6 +186,7 @@ async function gerarAteste() {
         qtd_nfs: nfsSelecionadas.value.length,
         gerado_por: auth.user?.id ?? null,
         gerado_por_nome: auth.perfil?.nome ?? null,
+        gerado_por_matricula: auth.perfil?.matricula_siape ?? null,
       })
       .select("id")
       .single();
@@ -206,6 +207,7 @@ async function gerarAteste() {
       localEmissao: localEmissao.value.trim() || "Rio de Janeiro",
       observacoes: observacoes.value.trim() || null,
       assinanteNome: auth.perfil?.nome ?? "",
+      assinanteMatricula: auth.perfil?.matricula_siape ?? null,
       logoDataUrl: await carregarLogo(),
     });
     doc.save(filename);
@@ -260,6 +262,7 @@ async function baixarDoHistorico(a: AtesteRow) {
       localEmissao: a.local_emissao,
       observacoes: a.observacoes,
       assinanteNome: a.gerado_por_nome ?? "",
+      assinanteMatricula: a.gerado_por_matricula,
       logoDataUrl: await carregarLogo(),
     });
     doc.save(filename);

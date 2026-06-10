@@ -222,9 +222,12 @@ create table if not exists public.atestes (
   qtd_nfs         int not null default 0,
   gerado_por      uuid references auth.users(id) on delete set null,
   gerado_por_nome text,
+  -- snapshot da matrícula no momento da emissão (documento não muda depois)
+  gerado_por_matricula text,
   created_at      timestamptz not null default now()
 );
 create index if not exists idx_atestes_fornecedor on public.atestes(fornecedor_id);
+alter table public.atestes add column if not exists gerado_por_matricula text;
 
 create table if not exists public.atestes_nfs (
   id         bigserial primary key,
@@ -244,6 +247,7 @@ create table if not exists public.perfis (
   id          uuid primary key references auth.users(id) on delete cascade,
   nome        text not null,
   email       text,
+  matricula_siape text,
   papel       text not null default 'outros' check (papel in ('campus','sane','admin','outros')),
   campus_id   bigint references public.campi(id) on delete set null,
   created_at  timestamptz not null default now(),
@@ -252,6 +256,7 @@ create table if not exists public.perfis (
 
 -- Migração idempotente (bancos criados antes de 10/06/2026):
 alter table public.perfis add column if not exists email text;
+alter table public.perfis add column if not exists matricula_siape text;
 alter table public.perfis alter column papel set default 'outros';
 alter table public.perfis drop constraint if exists perfis_papel_check;
 alter table public.perfis add constraint perfis_papel_check
