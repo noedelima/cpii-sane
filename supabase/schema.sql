@@ -634,3 +634,87 @@ $asp$;
 revoke execute on function public.admin_set_user_password(uuid, text) from public;
 revoke execute on function public.admin_set_user_password(uuid, text) from anon;
 grant execute on function public.admin_set_user_password(uuid, text) to authenticated;
+
+-- =========================================================
+-- 12) Criação de usuário por administrador
+-- =========================================================
+-- Cria a conta no GoTrue (auth.users + auth.identities) já confirmada e com
+-- senha, e completa o perfil (papel/campus/matrícula). O trigger
+-- handle_new_user cria o perfil base; aqui só o atualizamos.
+
+create or replace function public.admin_create_user(
+  p_email text,
+  p_password text,
+  p_nome text,
+  p_papel text default 'outros',
+  p_campus_id bigint default null,
+  p_matricula text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $acu$
+declare
+  v_id uuid;
+begin
+  if coalesce(public.current_papel(), '') <> 'admin' then
+    raise exception 'Apenas administradores podem cadastrar usuários.';
+  end if;
+  p_email := lower(trim(p_email));
+  if p_email is null or p_email !~ '^\S+@\S+[.]\S+' then
+    raise exception 'E-mail inválido.';
+  end if;
+  if p_password is null or length(p_password) < 10 then
+    raise exception 'A senha deve ter ao menos 10 caracteres.';
+  end if;
+  if coalesce(trim(p_nome), '') = '' then
+    raise exception 'Informe o nome.';
+  end if;
+  if p_papel not in ('campus','sane','admin','outros') then
+    raise exception 'Papel inválido: %', p_papel;
+  end if;
+  if exists (select 1 from auth.users where lower(email) = p_email) then
+    raise exception 'Já existe usuário com o e-mail %.', p_email;
+  end if;
+
+  v_id := gen_random_uuid();
+
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+    created_at, updated_at,
+    confirmation_token, email_change, email_change_token_new, recovery_token
+  ) values (
+    '00000000-0000-0000-0000-000000000000', v_id, 'authenticated', 'authenticated',
+    p_email, extensions.crypt(p_password, extensions.gen_salt('bf')),
+    now(), '{"provider":"email","providers":["email"]}'::jsonb,
+    jsonb_build_object('nome', trim(p_nome)),
+    now(), now(),
+    '', '', '', ''
+  );
+
+  insert into auth.identities (
+    id, user_id, provider_id, identity_data, provider,
+    last_sign_in_at, created_at, updated_at
+  ) values (
+    gen_random_uuid(), v_id, v_id::text,
+    jsonb_build_object('sub', v_id::text, 'email', p_email, 'email_verified', true),
+    'email', now(), now(), now()
+  );
+
+  -- o trigger handle_new_user já criou o perfil; completa os dados
+  update public.perfis
+     set nome = trim(p_nome),
+         papel = p_papel,
+         campus_id = p_campus_id,
+         matricula_siape = nullif(trim(coalesce(p_matricula, '')), '')
+   where id = v_id;
+
+  return v_id;
+end;
+$acu$;
+
+revoke execute on function public.admin_create_user(text, text, text, text, bigint, text) from public;
+revoke execute on function public.admin_create_user(text, text, text, text, bigint, text) from anon;
+grant execute on function public.admin_create_user(text, text, text, text, bigint, text) to authenticated;
