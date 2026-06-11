@@ -22,6 +22,8 @@ const statusSel = ref<string[]>(["confirmado"]);
 const ocultarAtestadas = ref(true);
 const dataDe = ref("");
 const dataAte = ref("");
+const buscaNumero = ref("");
+let buscaTimer: ReturnType<typeof setTimeout> | null = null;
 
 const nfs = ref<NotaFiscal[]>([]);
 const atestadas = ref<Set<number>>(new Set());
@@ -79,6 +81,10 @@ watch(fornecedorId, async () => {
 });
 
 watch([gruposSel, statusSel, ocultarAtestadas, dataDe, dataAte], carregarNFs, { deep: true });
+watch(buscaNumero, () => {
+  if (buscaTimer) clearTimeout(buscaTimer);
+  buscaTimer = setTimeout(carregarNFs, 350);
+});
 
 async function carregarNFs() {
   if (!fornecedorId.value || gruposSel.value.size === 0) {
@@ -98,6 +104,7 @@ async function carregarNFs() {
   if (statusSel.value.length) q = q.in("status", statusSel.value);
   if (dataDe.value) q = q.gte("data_entrega", dataDe.value);
   if (dataAte.value) q = q.lte("data_entrega", dataAte.value);
+  if (buscaNumero.value.trim()) q = q.ilike("numero", `%${buscaNumero.value.trim()}%`);
 
   const { data, error: err } = await q;
   if (err) {
@@ -339,6 +346,10 @@ onMounted(async () => {
       </div>
 
       <div v-if="fornecedorId" class="flex flex-wrap items-end gap-4">
+        <div>
+          <label class="label">Buscar nº da NF</label>
+          <input v-model="buscaNumero" type="search" class="input max-w-[11rem]" placeholder="ex.: 70233" />
+        </div>
         <div>
           <span class="label">Status das NFs</span>
           <div class="flex gap-2">

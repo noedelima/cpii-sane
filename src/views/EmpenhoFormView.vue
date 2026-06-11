@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
 import { fmtMoney } from "@/lib/format";
 import PdfUpload from "@/components/PdfUpload.vue";
-import type { Empenho, Fornecedor, Grupo } from "@/types/database";
+import type { Empenho, Fornecedor, Grupo, Item } from "@/types/database";
 
 interface Alocacao {
   id?: number;
@@ -13,6 +13,16 @@ interface Alocacao {
   valor_alocado: number | null;
   percentual: number | null;
   observacoes: string | null;
+}
+
+interface LinhaEmpItem {
+  id?: number;
+  item_id: number;
+  quantidade: number;
+  valor_unitario: number | null;
+  _descricao: string;
+  _unidade: string;
+  _catmat: string | null;
 }
 
 const route = useRoute();
@@ -41,6 +51,13 @@ const linkPdf = ref<string | null>(null);
 
 const alocacoes = ref<Alocacao[]>([]);
 
+// itens/quantidades do empenho (por seleção a partir dos grupos alocados)
+const empItens = ref<LinhaEmpItem[]>([]);
+const itemGrupoSel = ref<number | null>(null);
+const itensDoGrupoSel = ref<Item[]>([]);
+const novoItemId = ref<number | null>(null);
+const novaQtd = ref<number | null>(null);
+
 const loading = ref(false);
 const saving = ref(false);
 const error = ref<string | null>(null);
@@ -51,6 +68,60 @@ const valorLiquido = computed(
 const somaAlocada = computed(() =>
   alocacoes.value.reduce((a, l) => a + (l.valor_alocado ?? 0), 0)
 );
+const somaItens = computed(() =>
+  empItens.value.reduce((a, l) => a + l.quantidade * (l.valor_unitario ?? 0), 0)
+);
+const gruposAlocados = computed(() =>
+  grupos.value.filter((g) => alocacoes.value.some((a) => a.grupo_id === g.id))
+);
+const itemSelecionado = computed(
+  () => itensDoGrupoSel.value.find((i) => i.id === novoItemId.value) ?? null
+);
+
+async function loadItensDoGrupoSel() {
+  itensDoGrupoSel.value = [];
+  novoItemId.value = null;
+  if (!itemGrupoSel.value) return;
+  const { data } = await supabase
+    .from("itens")
+    .select("*")
+    .eq("grupo_id", itemGrupoSel.value)
+    .eq("status", "ativo")
+    .order("descricao");
+  itensDoGrupoSel.value = (data as Item[] | null) ?? [];
+}
+
+function addEmpItem() {
+  const item = itemSelecionado.value;
+  if (!item || !novaQtd.value || novaQtd.value <= 0) return;
+  if (empItens.value.some((l) => l.item_id === item.id)) {
+    error.value = "Este item já está no empenho — edite a quantidade na linha existente.";
+    return;
+  }
+  empItens.value.push({
+    item_id: item.id,
+    quantidade: novaQtd.value,
+    valor_unitario: Number(item.preco_unitario),
+    _descricao: item.descricao,
+    _unidade: item.unidade,
+    _catmat: item.codigo_catmat,
+  });
+  novoItemId.value = null;
+  novaQtd.value = null;
+}
+
+async function removeEmpItem(idx: number) {
+  const l = empItens.value[idx];
+  if (l.id) {
+    if (!confirm(`Remover ${l._descricao} do empenho?`)) return;
+    const { error: err } = await supabase.from("empenhos_itens").delete().eq("id", l.id);
+    if (err) {
+      error.value = err.message;
+      return;
+    }
+  }
+  empItens.value.splice(idx, 1);
+}
 
 async function loadRefs() {
   const [f, g] = await Promise.all([
@@ -89,6 +160,25 @@ async function loadEmpenho() {
     ...l,
     valor_alocado: Number(l.valor_alocado),
     percentual: l.percentual == null ? null : Number(l.percentual),
+  }));
+
+  const ei = await supabase
+    .from("empenhos_itens")
+    .select("*, itens (descricao, unidade, codigo_catmat)")
+    .eq("empenho_id", empenhoId.value)
+    .order("id");
+  type EIRow = {
+    id: number; item_id: number; quantidade: number; valor_unitario: number | null;
+    itens: { descricao: string; unidade: string; codigo_catmat: string | null } | null;
+  };
+  empItens.value = ((ei.data as unknown as (EIRow[] | null)) ?? []).map((r) => ({
+    id: r.id,
+    item_id: r.item_id,
+    quantidade: Number(r.quantidade),
+    valor_unitario: r.valor_unitario == null ? null : Number(r.valor_unitario),
+    _descricao: r.itens?.descricao ?? "—",
+    _unidade: r.itens?.unidade ?? "",
+    _catmat: r.itens?.codigo_catmat ?? null,
   }));
   loading.value = false;
 }
@@ -176,6 +266,26 @@ async function salvar() {
         if (err) throw err;
       } else {
         const { error: err } = await supabase.from("empenhos_grupos").insert(linha);
+        if (err) throw err;
+      }
+    }
+
+    for (const l of empItens.value) {
+      if (!l.item_id || l.quantidade <= 0) continue;
+      const linha = {
+        empenho_id: id,
+        item_id: l.item_id,
+        quantidade: l.quantidade,
+        valor_unitario: l.valor_unitario,
+      };
+      if (l.id) {
+        const { error: err } = await supabase
+          .from("empenhos_itens")
+          .update(linha)
+          .eq("id", l.id);
+        if (err) throw err;
+      } else {
+        const { error: err } = await supabase.from("empenhos_itens").insert(linha);
         if (err) throw err;
       }
     }
@@ -307,6 +417,79 @@ onMounted(async () => {
             v-if="Math.abs(somaAlocada - valorLiquido) > 0.01"
             class="text-amber-600 dark:text-amber-400 ml-2"
           >difere do valor líquido ({{ fmtMoney(valorLiquido) }})</span>
+        </p>
+      </div>
+
+      <div class="card p-5 space-y-4">
+        <h2 class="font-medium text-slate-700 dark:text-slate-200">Itens empenhados (opcional)</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400">
+          Selecione o grupo alocado e adicione itens com quantidade — o valor unitário
+          é herdado do catálogo (e fica congelado neste empenho).
+        </p>
+
+        <div class="grid sm:grid-cols-12 gap-3 items-end">
+          <div class="sm:col-span-3">
+            <label class="label">Grupo</label>
+            <select v-model="itemGrupoSel" class="input" @change="loadItensDoGrupoSel">
+              <option :value="null" disabled>
+                {{ gruposAlocados.length ? "Selecione…" : "Aloque um grupo antes" }}
+              </option>
+              <option v-for="g in gruposAlocados" :key="g.id" :value="g.id">
+                {{ g.numero_romano }} — {{ g.categoria }}
+              </option>
+            </select>
+          </div>
+          <div class="sm:col-span-5">
+            <label class="label">Item (CatMat — nome)</label>
+            <select v-model="novoItemId" class="input" :disabled="!itemGrupoSel">
+              <option :value="null" disabled>Selecione…</option>
+              <option v-for="i in itensDoGrupoSel" :key="i.id" :value="i.id">
+                {{ i.codigo_catmat ? i.codigo_catmat + " — " : "" }}{{ i.descricao }}
+              </option>
+            </select>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="label">Qtd ({{ itemSelecionado?.unidade ?? "un" }})</label>
+            <input v-model.number="novaQtd" type="number" step="0.001" min="0" class="input" />
+          </div>
+          <div class="sm:col-span-2">
+            <button type="button" class="btn-secondary w-full" @click="addEmpItem">Adicionar</button>
+          </div>
+        </div>
+
+        <table v-if="empItens.length" class="w-full text-sm">
+          <thead class="text-xs text-slate-500 dark:text-slate-400 uppercase">
+            <tr>
+              <th class="text-left py-1">CatMat</th>
+              <th class="text-left py-1">Item</th>
+              <th class="text-right py-1">Qtd</th>
+              <th class="text-right py-1">Valor unit.</th>
+              <th class="text-right py-1">Subtotal</th>
+              <th class="py-1"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+            <tr v-for="(l, idx) in empItens" :key="l.id ?? `n${idx}`">
+              <td class="py-2 text-slate-600 dark:text-slate-300 w-24">{{ l._catmat ?? "—" }}</td>
+              <td class="py-2">{{ l._descricao }}</td>
+              <td class="py-2 text-right w-28">
+                <input v-model.number="l.quantidade" type="number" step="0.001" min="0" class="input text-right" />
+              </td>
+              <td class="py-2 text-right tabular-nums w-28">{{ fmtMoney(l.valor_unitario) }}</td>
+              <td class="py-2 text-right tabular-nums w-28">{{ fmtMoney(l.quantidade * (l.valor_unitario ?? 0)) }}</td>
+              <td class="py-2 text-right w-20">
+                <button type="button" class="text-red-600 dark:text-red-400 text-xs hover:underline" @click="removeEmpItem(idx)">
+                  remover
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-if="empItens.length" class="text-sm text-slate-600 dark:text-slate-300">
+          Total dos itens: <strong class="tabular-nums">{{ fmtMoney(somaItens) }}</strong>
+          <span v-if="Math.abs(somaItens - valorLiquido) > 0.01" class="text-amber-600 dark:text-amber-400 ml-2">
+            difere do valor líquido ({{ fmtMoney(valorLiquido) }})
+          </span>
         </p>
       </div>
 

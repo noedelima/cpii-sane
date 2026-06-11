@@ -63,6 +63,7 @@ const navItems = computed(() => {
     { to: "/recibos", label: "Recibos" },
     { to: "/nfs", label: "Notas Fiscais" },
     { to: "/empenhos", label: "Empenhos" },
+    { to: "/grupos", label: "Grupos" },
   ];
   if (auth.isSane) items.push({ to: "/ateste", label: "Ateste" });
   return items;

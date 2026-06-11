@@ -58,7 +58,11 @@ onMounted(load);
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
           <tr v-for="r in recibos" :key="r.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-            <td class="px-4 py-2 font-medium">{{ r.numero }}</td>
+            <td class="px-4 py-2 font-medium">
+              <RouterLink :to="`/recibos/${r.id}`" class="text-cpii-600 dark:text-cpii-300 hover:underline">
+                {{ r.numero }}
+              </RouterLink>
+            </td>
             <td class="px-4 py-2">{{ r.data_recebimento }}</td>
             <td class="px-4 py-2">{{ r.campi?.nome ?? "—" }}</td>
             <td class="px-4 py-2">{{ r.grupos?.nome ?? "—" }}</td>

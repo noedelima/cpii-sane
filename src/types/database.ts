@@ -87,6 +87,16 @@ export interface Empenho {
   updated_at: string;
 }
 
+/** Item/quantidade vinculado a um empenho (detalhe físico da NE). */
+export interface EmpenhoItem {
+  id: number;
+  empenho_id: number;
+  item_id: number;
+  quantidade: number;
+  valor_unitario: number | null;
+  observacoes: string | null;
+}
+
 export interface Recibo {
   id: number;
   numero: string;

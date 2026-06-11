@@ -61,6 +61,9 @@ create table if not exists public.itens (
   updated_at      timestamptz not null default now()
 );
 create index if not exists idx_itens_grupo on public.itens(grupo_id);
+-- CatMat é o indexador do item dentro do grupo (busca e unicidade).
+create unique index if not exists uq_itens_grupo_catmat
+  on public.itens (grupo_id, codigo_catmat) where codigo_catmat is not null;
 
 -- =========================================================
 -- 2) Empenhos
@@ -104,6 +107,19 @@ create table if not exists public.empenhos_grupos (
   observacoes   text,
   unique (empenho_id, grupo_id)
 );
+
+-- Itens/quantidades vinculados ao empenho (detalhe físico da NE).
+create table if not exists public.empenhos_itens (
+  id              bigserial primary key,
+  empenho_id      bigint not null references public.empenhos(id) on delete cascade,
+  item_id         bigint not null references public.itens(id) on delete restrict,
+  quantidade      numeric(14,3) not null default 0,
+  -- snapshot do preço na época do empenho (o catálogo pode ser reajustado)
+  valor_unitario  numeric(14,4),
+  observacoes     text,
+  unique (empenho_id, item_id)
+);
+create index if not exists idx_empenhos_itens_empenho on public.empenhos_itens(empenho_id);
 
 -- =========================================================
 -- 3) Recibos (cabeçalho + itens)
@@ -299,6 +315,7 @@ alter table public.grupos         enable row level security;
 alter table public.itens          enable row level security;
 alter table public.empenhos       enable row level security;
 alter table public.empenhos_grupos enable row level security;
+alter table public.empenhos_itens enable row level security;
 alter table public.recibos        enable row level security;
 alter table public.recibos_itens  enable row level security;
 alter table public.notas_fiscais  enable row level security;
@@ -376,8 +393,8 @@ begin
   -- remove policies anteriores (inclusive as do MVP)
   for t in select unnest(array[
     'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
-    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos',
-    'atestes','atestes_nfs','perfis'
+    'empenhos_itens','recibos','recibos_itens','notas_fiscais','nf_itens',
+    'nf_empenhos','atestes','atestes_nfs','perfis'
   ]) loop
     execute format('drop policy if exists p_%s_select on public.%s', t, t);
     execute format('drop policy if exists p_%s_insert on public.%s', t, t);
@@ -388,17 +405,17 @@ begin
   -- leitura geral autenticada (perfis tem regra própria abaixo)
   for t in select unnest(array[
     'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
-    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos',
-    'atestes','atestes_nfs'
+    'empenhos_itens','recibos','recibos_itens','notas_fiscais','nf_itens',
+    'nf_empenhos','atestes','atestes_nfs'
   ]) loop
     execute format(
       'create policy p_%s_select on public.%s for select to authenticated using (true)', t, t);
   end loop;
 
-  -- escrita SANE/admin no núcleo operacional
+  -- escrita SANE/admin no núcleo operacional (inclui grupos/catálogo da ata)
   for t in select unnest(array[
-    'itens','empenhos','empenhos_grupos','notas_fiscais','nf_itens','nf_empenhos',
-    'atestes','atestes_nfs'
+    'grupos','itens','empenhos','empenhos_grupos','empenhos_itens',
+    'notas_fiscais','nf_itens','nf_empenhos','atestes','atestes_nfs'
   ]) loop
     execute format(
       'create policy p_%s_insert on public.%s for insert to authenticated
@@ -410,7 +427,7 @@ begin
   end loop;
 
   -- cadastros básicos: só admin escreve
-  for t in select unnest(array['campi','fornecedores','grupos']) loop
+  for t in select unnest(array['campi','fornecedores']) loop
     execute format(
       'create policy p_%s_insert on public.%s for insert to authenticated
        with check (public.current_papel() = ''admin'')', t, t);
@@ -423,8 +440,8 @@ begin
   -- delete: só admin
   for t in select unnest(array[
     'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
-    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos',
-    'atestes','atestes_nfs'
+    'empenhos_itens','recibos','recibos_itens','notas_fiscais','nf_itens',
+    'nf_empenhos','atestes','atestes_nfs'
   ]) loop
     execute format(
       'create policy p_%s_delete on public.%s for delete to authenticated
@@ -482,6 +499,17 @@ create policy p_atestes_delete on public.atestes for delete to authenticated
   using (public.current_papel() in ('sane','admin'));
 drop policy if exists p_atestes_nfs_delete on public.atestes_nfs;
 create policy p_atestes_nfs_delete on public.atestes_nfs for delete to authenticated
+  using (public.current_papel() in ('sane','admin'));
+
+-- Linhas de itens (detalhe editável): SANE pode remover durante a edição.
+drop policy if exists p_empenhos_itens_delete on public.empenhos_itens;
+create policy p_empenhos_itens_delete on public.empenhos_itens for delete to authenticated
+  using (public.current_papel() in ('sane','admin'));
+drop policy if exists p_nf_itens_delete on public.nf_itens;
+create policy p_nf_itens_delete on public.nf_itens for delete to authenticated
+  using (public.current_papel() in ('sane','admin'));
+drop policy if exists p_recibos_itens_delete on public.recibos_itens;
+create policy p_recibos_itens_delete on public.recibos_itens for delete to authenticated
   using (public.current_papel() in ('sane','admin'));
 
 -- =========================================================

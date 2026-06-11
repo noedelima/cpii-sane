@@ -75,6 +75,28 @@ const routes: RouteRecordRaw[] = [
     meta: { roles: ["sane"] },
   },
   {
+    path: "/grupos",
+    name: "grupos",
+    component: () => import("@/views/GruposView.vue"),
+  },
+  {
+    path: "/grupos/novo",
+    name: "grupo-novo",
+    component: () => import("@/views/GrupoFormView.vue"),
+    meta: { roles: ["sane"] },
+  },
+  {
+    path: "/grupos/:id",
+    name: "grupo-editar",
+    component: () => import("@/views/GrupoFormView.vue"),
+    meta: { roles: ["sane"] },
+  },
+  {
+    path: "/recibos/:id",
+    name: "recibo-editar",
+    component: () => import("@/views/ReciboFormView.vue"),
+  },
+  {
     path: "/ateste",
     name: "ateste",
     component: () => import("@/views/AtesteView.vue"),
