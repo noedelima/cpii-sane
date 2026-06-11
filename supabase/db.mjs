@@ -152,10 +152,7 @@ function pinnedRequest(url, { method, headers, body }, pins) {
   });
 }
 
-function httpsJson(url, opts) {
-  const pins = loadPins();
-  if (pins && pins.length) return pinnedRequest(url, opts, pins);
-  // rede sem inspecao TLS: https padrao com verificacao normal
+function plainHttps(url, opts) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const req = https.request(
@@ -170,6 +167,25 @@ function httpsJson(url, opts) {
     if (opts.body) req.write(opts.body);
     req.end();
   });
+}
+
+async function httpsJson(url, opts) {
+  // 1) verificacao TLS normal (rede limpa). Se o handshake falhar por
+  // certificado (rede com inspecao TLS), nada e enviado e caimos no pin.
+  try {
+    return await plainHttps(url, opts);
+  } catch (e) {
+    const code = String((e && e.code) || "");
+    const certErr =
+      code.startsWith("UNABLE_TO") || code.includes("CERT") ||
+      /certificate/i.test(String((e && e.message) || ""));
+    const pins = loadPins();
+    if (certErr && pins && pins.length) {
+      console.error("verificacao TLS padrao falhou (" + code + "); usando pin do proxy institucional");
+      return pinnedRequest(url, opts, pins);
+    }
+    throw e;
+  }
 }
 
 export async function queryViaApi(sql) {
