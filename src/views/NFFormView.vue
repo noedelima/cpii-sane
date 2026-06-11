@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
-import { fmtMoney } from "@/lib/format";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import PdfUpload from "@/components/PdfUpload.vue";
 import type { Grupo, Item, NFEmpenho, NotaFiscal, Recibo, VwEmpenhoSaldo } from "@/types/database";
 
@@ -618,7 +618,7 @@ onMounted(async () => {
                 </RouterLink>
               </td>
               <td class="py-2">{{ r.campi?.nome ?? "—" }}</td>
-              <td class="py-2">{{ r.data_recebimento }}</td>
+              <td class="py-2 whitespace-nowrap">{{ fmtDate(r.data_recebimento) }}</td>
               <td class="py-2 capitalize">{{ r.status }}</td>
               <td class="py-2">{{ r.link_pdf ? "anexado" : "—" }}</td>
             </tr>
