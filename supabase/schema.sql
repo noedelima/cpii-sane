@@ -680,7 +680,7 @@ begin
     insert into public.nf_empenhos (nf_id, empenho_id, valor_debitado, observacoes)
     select p_nf_id, ni.empenho_id,
            round(sum(ni.quantidade * coalesce(ni.valor_unitario, 0)), 2),
-           'FIFO por item (CatMat)'
+           'Fila por item (CatMat) — mais antigo primeiro'
     from public.nf_itens ni
     where ni.nf_id = p_nf_id and ni.empenho_id is not null
     group by ni.empenho_id;
@@ -717,7 +717,7 @@ begin
     if v_emp.saldo > 0 then
       v_take := least(v_emp.saldo, v_restante);
       insert into public.nf_empenhos (nf_id, empenho_id, valor_debitado, observacoes)
-      values (p_nf_id, v_emp.id, v_take, 'Distribuicao FIFO')
+      values (p_nf_id, v_emp.id, v_take, 'Distribuição pela fila — mais antigo primeiro')
       on conflict (nf_id, empenho_id) do update
         set valor_debitado = public.nf_empenhos.valor_debitado + excluded.valor_debitado;
       v_restante := v_restante - v_take;

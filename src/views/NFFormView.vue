@@ -370,17 +370,17 @@ async function distribuirFifo() {
     const sem = rel.filter((r) => r.resultado === "sem_cobertura");
     const fin = rel.filter((r) => r.resultado === "financeiro").length;
     if (fin) {
-      aviso.value = `Distribuição FIFO financeira concluída (${fin} empenho(s) debitados).`;
+      aviso.value = `Distribuição pela fila concluída (${fin} empenho(s) debitados, do mais antigo para o mais novo).`;
     } else {
       aviso.value =
-        `FIFO por item concluído: ${vinc} vínculo(s) pelo empenho mais antigo com saldo.` +
+        `Distribuição pela fila concluída: ${vinc} item(ns) vinculado(s) ao(s) empenho(s) mais antigo(s) com saldo.` +
         (sem.length
           ? ` Sem cobertura em empenho: ${sem.map((s) => s.item_ref).join("; ")} — ` +
             `empenhe o item (ou vincule manualmente) e redistribua.`
           : "");
     }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "Falha na distribuição FIFO.";
+    error.value = e instanceof Error ? e.message : "Falha na distribuição pela fila.";
   } finally {
     distribuindo.value = false;
   }
@@ -561,7 +561,7 @@ onMounted(async () => {
                 <span
                   v-else
                   class="inline-block rounded-full border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-xs"
-                  title="Sem vínculo — rode a distribuição FIFO ou empenhe o item"
+                  title="Sem vínculo — rode a distribuição pela fila ou empenhe o item"
                 >pendente</span>
               </td>
               <td class="py-2 text-right w-28">
@@ -581,8 +581,8 @@ onMounted(async () => {
           Nenhum item lançado — selecione acima. (Os itens são gravados ao salvar a NF.)
         </p>
         <p v-if="nfItens.length" class="text-xs text-slate-500 dark:text-slate-400">
-          “Distribuir FIFO” vincula cada item ao empenho mais antigo que o possui com
-          saldo de quantidade (pelo CatMat), dividindo entre empenhos se preciso, e
+          “Distribuir pela fila” vincula cada item ao empenho mais antigo que o possui
+          com saldo de quantidade (pelo CatMat), dividindo entre empenhos se preciso, e
           recalcula o débito financeiro. Se alterar itens, redistribua.
         </p>
       </div>
@@ -638,7 +638,7 @@ onMounted(async () => {
             :disabled="distribuindo || !valorTotal"
             @click="distribuirFifo"
           >
-            {{ distribuindo ? "Distribuindo…" : "Distribuir FIFO" }}
+            {{ distribuindo ? "Distribuindo…" : "Distribuir pela fila" }}
           </button>
         </div>
 
@@ -682,7 +682,7 @@ onMounted(async () => {
           </tbody>
         </table>
         <p v-else class="text-sm text-slate-500 dark:text-slate-400">
-          Nenhum débito lançado. Use “Distribuir FIFO” ou adicione manualmente.
+          Nenhum débito lançado. Use “Distribuir pela fila” ou adicione manualmente.
         </p>
 
         <div class="grid sm:grid-cols-12 gap-3 items-end border-t border-slate-200 dark:border-slate-700 pt-4">
@@ -708,7 +708,7 @@ onMounted(async () => {
       </div>
 
       <p v-else class="text-sm text-slate-500 dark:text-slate-400">
-        Salve a NF para liberar itens, recibos vinculados e o débito em empenhos (FIFO ou manual).
+        Salve a NF para liberar itens, recibos vinculados e o débito em empenhos (pela fila ou manual).
       </p>
 
       <div v-if="aviso" class="rounded-md bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 p-3 text-sm text-green-700 dark:text-green-300">

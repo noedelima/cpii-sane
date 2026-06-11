@@ -383,7 +383,7 @@ onMounted(async () => {
 
         <p v-if="!alocacoes.length" class="text-sm text-slate-500 dark:text-slate-400">
           Nenhum grupo alocado. Adicione ao menos um para que o empenho apareça
-          na distribuição FIFO das notas fiscais.
+          na distribuição pela fila das notas fiscais.
         </p>
 
         <div v-for="(l, idx) in alocacoes" :key="l.id ?? `n${idx}`" class="grid sm:grid-cols-12 gap-3 items-end">

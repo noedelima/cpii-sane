@@ -24,6 +24,7 @@
     "@vitejs/plugin-vue": "^5.1.4",
     "autoprefixer": "^10.4.20",
     "libsodium-wrappers": "^0.8.4",
+    "pdf-parse": "^1.1.1",
     "pg": "^8.21.0",
     "postcss": "^8.4.47",
     "sharp": "^0.34.5",
