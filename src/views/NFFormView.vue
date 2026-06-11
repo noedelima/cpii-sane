@@ -17,6 +17,7 @@ interface LinhaNFItem {
   _descricao: string;
   _unidade: string;
   _catmat: string | null;
+  _empenhoNumero?: string | null;
 }
 
 type ReciboRow = Recibo & { campi?: { nome: string } | null };
@@ -133,12 +134,13 @@ async function loadNFItens() {
   if (!nfId.value) return;
   const { data } = await supabase
     .from("nf_itens")
-    .select("*, itens (descricao, unidade, codigo_catmat)")
+    .select("*, itens (descricao, unidade, codigo_catmat), empenhos (numero)")
     .eq("nf_id", nfId.value)
     .order("id");
   type NIRow = {
     id: number; item_id: number; quantidade: number; valor_unitario: number | null;
     itens: { descricao: string; unidade: string; codigo_catmat: string | null } | null;
+    empenhos: { numero: string } | null;
   };
   nfItens.value = ((data as unknown as (NIRow[] | null)) ?? []).map((r) => ({
     id: r.id,
@@ -148,6 +150,7 @@ async function loadNFItens() {
     _descricao: r.itens?.descricao ?? "—",
     _unidade: r.itens?.unidade ?? "",
     _catmat: r.itens?.codigo_catmat ?? null,
+    _empenhoNumero: r.empenhos?.numero ?? null,
   }));
 }
 
@@ -356,12 +359,26 @@ async function distribuirFifo() {
   if (!ok) return;
   distribuindo.value = true;
   try {
-    const { error: err } = await supabase.rpc("distribute_nf_fifo", {
+    const { data, error: err } = await supabase.rpc("distribute_nf_fifo", {
       p_nf_id: nfId.value,
     });
     if (err) throw err;
-    await Promise.all([loadRateios(), loadEmpenhosDoGrupo()]);
-    aviso.value = "Distribuição FIFO concluída.";
+    await Promise.all([loadRateios(), loadEmpenhosDoGrupo(), loadNFItens()]);
+    type Rel = { resultado: string; item_ref: string | null; quantidade: number | null };
+    const rel = ((data as unknown as Rel[]) ?? []);
+    const vinc = rel.filter((r) => r.resultado === "vinculado").length;
+    const sem = rel.filter((r) => r.resultado === "sem_cobertura");
+    const fin = rel.filter((r) => r.resultado === "financeiro").length;
+    if (fin) {
+      aviso.value = `Distribuição FIFO financeira concluída (${fin} empenho(s) debitados).`;
+    } else {
+      aviso.value =
+        `FIFO por item concluído: ${vinc} vínculo(s) pelo empenho mais antigo com saldo.` +
+        (sem.length
+          ? ` Sem cobertura em empenho: ${sem.map((s) => s.item_ref).join("; ")} — ` +
+            `empenhe o item (ou vincule manualmente) e redistribua.`
+          : "");
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Falha na distribuição FIFO.";
   } finally {
@@ -525,6 +542,7 @@ onMounted(async () => {
             <tr>
               <th class="text-left py-1">CatMat</th>
               <th class="text-left py-1">Item</th>
+              <th class="text-left py-1">Empenho</th>
               <th class="text-right py-1">Qtd</th>
               <th class="text-right py-1">Valor unit.</th>
               <th class="text-right py-1">Subtotal</th>
@@ -535,6 +553,17 @@ onMounted(async () => {
             <tr v-for="(l, idx) in nfItens" :key="l.id ?? `n${idx}`">
               <td class="py-2 text-slate-600 dark:text-slate-300 w-24">{{ l._catmat ?? "—" }}</td>
               <td class="py-2">{{ l._descricao }}</td>
+              <td class="py-2 w-32">
+                <span
+                  v-if="l._empenhoNumero"
+                  class="inline-block rounded-full border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300 px-2 py-0.5 text-xs"
+                >{{ l._empenhoNumero }}</span>
+                <span
+                  v-else
+                  class="inline-block rounded-full border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-xs"
+                  title="Sem vínculo — rode a distribuição FIFO ou empenhe o item"
+                >pendente</span>
+              </td>
               <td class="py-2 text-right w-28">
                 <input v-model.number="l.quantidade" type="number" step="0.001" min="0" class="input text-right" />
               </td>
@@ -550,6 +579,11 @@ onMounted(async () => {
         </table>
         <p v-else class="text-sm text-slate-500 dark:text-slate-400">
           Nenhum item lançado — selecione acima. (Os itens são gravados ao salvar a NF.)
+        </p>
+        <p v-if="nfItens.length" class="text-xs text-slate-500 dark:text-slate-400">
+          “Distribuir FIFO” vincula cada item ao empenho mais antigo que o possui com
+          saldo de quantidade (pelo CatMat), dividindo entre empenhos se preciso, e
+          recalcula o débito financeiro. Se alterar itens, redistribua.
         </p>
       </div>
 

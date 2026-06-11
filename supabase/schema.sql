@@ -502,6 +502,10 @@ create policy p_atestes_nfs_delete on public.atestes_nfs for delete to authentic
   using (public.current_papel() in ('sane','admin'));
 
 -- Linhas de itens (detalhe editável): SANE pode remover durante a edição.
+-- nf_empenhos também: a redistribuição FIFO recalcula os débitos da NF.
+drop policy if exists p_nf_empenhos_delete on public.nf_empenhos;
+create policy p_nf_empenhos_delete on public.nf_empenhos for delete to authenticated
+  using (public.current_papel() in ('sane','admin'));
 drop policy if exists p_empenhos_itens_delete on public.empenhos_itens;
 create policy p_empenhos_itens_delete on public.empenhos_itens for delete to authenticated
   using (public.current_papel() in ('sane','admin'));
@@ -560,18 +564,39 @@ left join (
 -- =========================================================
 -- 10) Distribuição FIFO de NF entre empenhos do grupo
 -- =========================================================
--- Distribui o valor_total da NF entre os empenhos ATIVOS do grupo, do mais
--- antigo para o mais novo, limitado ao saldo de cada um. Roda com privilégios
--- do chamador (security invoker): só SANE/admin passam pelo RLS de nf_empenhos.
--- Falha com exception (e rollback) se o saldo do grupo for insuficiente.
+-- Dois modos, decididos automaticamente:
+--
+--  A) NF COM itens (nf_itens): vincula ITEM A ITEM (mesmo item de catálogo,
+--     identificado pelo CatMat dentro do grupo) aos empenhos ATIVOS mais
+--     antigos que têm o item em empenhos_itens com saldo de QUANTIDADE
+--     (empenhado menos o já consumido por outras NFs). Linhas são divididas
+--     entre empenhos quando necessário; o que não tiver cobertura fica sem
+--     vínculo (relatório 'sem_cobertura'). Ao final, nf_empenhos da NF é
+--     RECALCULADO a partir dos itens vinculados (qtd x valor unitário).
+--
+--  B) NF SEM itens (ex.: migradas do Excel): comportamento financeiro
+--     original — completa o valor_total nos empenhos mais antigos com saldo
+--     financeiro (incremental, sem apagar rateios existentes).
+--
+-- Security invoker: só SANE/admin passam pelo RLS das tabelas envolvidas.
 
-create or replace function public.distribute_nf_fifo(p_nf_id bigint)
-returns setof public.nf_empenhos
+drop function if exists public.distribute_nf_fifo(bigint);
+
+create function public.distribute_nf_fifo(p_nf_id bigint)
+returns table (
+  resultado text,        -- 'vinculado' | 'sem_cobertura' | 'financeiro'
+  item_ref text,         -- "catmat — descricao" (nulo no modo financeiro)
+  empenho_numero text,
+  quantidade numeric,
+  valor numeric
+)
 language plpgsql
 as $fifo$
 declare
   v_nf record;
+  v_item record;
   v_emp record;
+  v_tem_itens boolean;
   v_ja numeric;
   v_restante numeric;
   v_take numeric;
@@ -580,6 +605,90 @@ begin
   if not found then
     raise exception 'NF % nao encontrada', p_nf_id;
   end if;
+
+  select exists (select 1 from public.nf_itens where nf_id = p_nf_id) into v_tem_itens;
+
+  if v_tem_itens then
+    -- ===== modo A: FIFO por item (CatMat) =====
+    for v_item in
+      select ni.item_id,
+             sum(ni.quantidade) as qtd_total,
+             max(ni.valor_unitario) as vu,
+             i.descricao,
+             i.codigo_catmat
+      from public.nf_itens ni
+      join public.itens i on i.id = ni.item_id
+      where ni.nf_id = p_nf_id
+      group by ni.item_id, i.descricao, i.codigo_catmat
+      order by min(ni.id)
+    loop
+      -- consolida (remove linhas do item; serão recriadas já vinculadas)
+      delete from public.nf_itens
+       where nf_id = p_nf_id and item_id = v_item.item_id;
+
+      v_restante := v_item.qtd_total;
+
+      for v_emp in
+        select e.id, e.numero,
+               ei.quantidade
+               - coalesce((select sum(x.quantidade)
+                           from public.nf_itens x
+                           where x.empenho_id = e.id
+                             and x.item_id = v_item.item_id
+                             and x.nf_id <> p_nf_id), 0) as saldo_qtd
+        from public.empenhos e
+        join public.empenhos_itens ei
+          on ei.empenho_id = e.id and ei.item_id = v_item.item_id
+        join public.empenhos_grupos eg
+          on eg.empenho_id = e.id and eg.grupo_id = v_nf.grupo_id
+        where e.status = 'ativo'
+        order by e.data_emissao asc, e.id asc
+        for update of e
+      loop
+        exit when v_restante <= 0;
+        if v_emp.saldo_qtd > 0 then
+          v_take := least(v_emp.saldo_qtd, v_restante);
+          insert into public.nf_itens (nf_id, item_id, empenho_id, quantidade, valor_unitario)
+          values (p_nf_id, v_item.item_id, v_emp.id, v_take, v_item.vu);
+          v_restante := v_restante - v_take;
+
+          resultado := 'vinculado';
+          item_ref := coalesce(v_item.codigo_catmat || ' — ', '') || v_item.descricao;
+          empenho_numero := v_emp.numero;
+          quantidade := v_take;
+          valor := round(v_take * coalesce(v_item.vu, 0), 2);
+          return next;
+        end if;
+      end loop;
+
+      if v_restante > 0 then
+        -- sem cobertura: preserva a linha sem vínculo para decisão manual
+        insert into public.nf_itens (nf_id, item_id, quantidade, valor_unitario)
+        values (p_nf_id, v_item.item_id, v_restante, v_item.vu);
+
+        resultado := 'sem_cobertura';
+        item_ref := coalesce(v_item.codigo_catmat || ' — ', '') || v_item.descricao;
+        empenho_numero := null;
+        quantidade := v_restante;
+        valor := round(v_restante * coalesce(v_item.vu, 0), 2);
+        return next;
+      end if;
+    end loop;
+
+    -- recalcula o débito financeiro da NF a partir dos itens vinculados
+    delete from public.nf_empenhos where nf_id = p_nf_id;
+    insert into public.nf_empenhos (nf_id, empenho_id, valor_debitado, observacoes)
+    select p_nf_id, ni.empenho_id,
+           round(sum(ni.quantidade * coalesce(ni.valor_unitario, 0)), 2),
+           'FIFO por item (CatMat)'
+    from public.nf_itens ni
+    where ni.nf_id = p_nf_id and ni.empenho_id is not null
+    group by ni.empenho_id;
+
+    return;
+  end if;
+
+  -- ===== modo B: FIFO financeiro (NF sem itens) =====
   if v_nf.valor_total is null or v_nf.valor_total <= 0 then
     raise exception 'NF % sem valor_total definido', p_nf_id;
   end if;
@@ -589,12 +698,11 @@ begin
 
   v_restante := v_nf.valor_total - v_ja;
   if v_restante <= 0 then
-    return query select * from public.nf_empenhos where nf_id = p_nf_id;
     return;
   end if;
 
   for v_emp in
-    select e.id,
+    select e.id, e.numero,
            (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao
             - coalesce((select sum(x.valor_debitado)
                         from public.nf_empenhos x where x.empenho_id = e.id), 0)) as saldo
@@ -613,6 +721,13 @@ begin
       on conflict (nf_id, empenho_id) do update
         set valor_debitado = public.nf_empenhos.valor_debitado + excluded.valor_debitado;
       v_restante := v_restante - v_take;
+
+      resultado := 'financeiro';
+      item_ref := null;
+      empenho_numero := v_emp.numero;
+      quantidade := null;
+      valor := v_take;
+      return next;
     end if;
   end loop;
 
@@ -620,8 +735,6 @@ begin
     raise exception 'Saldo insuficiente nos empenhos ativos do grupo % para a NF %: faltam R$ %',
       v_nf.grupo_id, v_nf.numero, v_restante;
   end if;
-
-  return query select * from public.nf_empenhos where nf_id = p_nf_id;
 end;
 $fifo$;
 
