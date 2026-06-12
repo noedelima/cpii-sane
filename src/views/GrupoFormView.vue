@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { fmtMoney } from "@/lib/format";
 import type { Fornecedor, Grupo, Item } from "@/types/database";
 
 interface LinhaItem extends Item {
@@ -38,6 +39,53 @@ const loading = ref(false);
 const saving = ref(false);
 const addingItem = ref(false);
 const error = ref<string | null>(null);
+
+// reajuste contratual (apostilamento)
+const reajPercentual = ref<number | null>(null);
+const reajDataBase = ref(new Date().toISOString().slice(0, 10));
+const reajReferencia = ref("");
+const reajAplicando = ref(false);
+const reajResultado = ref<string | null>(null);
+
+async function aplicarReajuste() {
+  error.value = null;
+  reajResultado.value = null;
+  if (!grupoId.value || reajPercentual.value == null || !reajDataBase.value) {
+    error.value = "Informe o percentual e a data-base do reajuste.";
+    return;
+  }
+  const ok = confirm(
+    `Aplicar reajuste de ${reajPercentual.value}% sobre TODOS os itens ativos deste grupo, ` +
+      `com data-base ${reajDataBase.value.split("-").reverse().join("/")}?\n\n` +
+      `Os preços vigentes serão atualizados e o histórico preservado. ` +
+      `ATENÇÃO: aplicar duas vezes acumula o percentual.`
+  );
+  if (!ok) return;
+  reajAplicando.value = true;
+  try {
+    const { data, error: err } = await supabase.rpc("aplicar_reajuste_grupo", {
+      p_grupo_id: grupoId.value,
+      p_percentual: reajPercentual.value,
+      p_data_base: reajDataBase.value,
+      p_referencia: reajReferencia.value.trim() || null,
+    });
+    if (err) throw err;
+    type R = { item_ref: string; preco_antigo: number; preco_novo: number };
+    const rows = ((data as unknown as R[]) ?? []);
+    reajResultado.value =
+      `Reajuste aplicado a ${rows.length} item(ns). ` +
+      (rows.length
+        ? `Ex.: ${rows[0].item_ref}: ${fmtMoney(rows[0].preco_antigo)} → ${fmtMoney(rows[0].preco_novo)}.`
+        : "");
+    reajPercentual.value = null;
+    reajReferencia.value = "";
+    await loadGrupo();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Falha ao aplicar o reajuste.";
+  } finally {
+    reajAplicando.value = false;
+  }
+}
 
 const romanos = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
   "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];
@@ -360,6 +408,41 @@ onMounted(async () => {
         <p class="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700">
           O CatMat identifica o item no grupo (não pode repetir). Para tirar um item de
           circulação, use o status <em>Inativo</em> — os lançamentos antigos são preservados.
+        </p>
+      </div>
+
+      <div v-if="editMode" class="card p-5 space-y-4">
+        <h2 class="font-medium text-slate-700 dark:text-slate-200">Reajuste contratual (apostilamento)</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400">
+          Aplica o percentual sobre o preço vigente de todos os itens ativos do grupo a
+          partir da data-base, preservando o histórico de preços. As NEs antigas não são
+          alteradas: o saldo delas é convertido automaticamente ao novo preço na fila
+          (regra de três), pois o valor empenhado não muda.
+        </p>
+        <div class="grid sm:grid-cols-12 gap-3 items-end">
+          <div class="sm:col-span-2">
+            <label class="label">Percentual (%)</label>
+            <input v-model.number="reajPercentual" type="number" step="0.0001" class="input" placeholder="ex.: 4,5" />
+          </div>
+          <div class="sm:col-span-3">
+            <label class="label">Data-base</label>
+            <input v-model="reajDataBase" type="date" class="input" />
+          </div>
+          <div class="sm:col-span-4">
+            <label class="label">Referência (nº do apostilamento)</label>
+            <input v-model="reajReferencia" type="text" class="input" placeholder="ex.: 1º Termo de Apostilamento ao TC 005/2025" />
+          </div>
+          <div class="sm:col-span-3">
+            <button
+              type="button"
+              class="btn-primary w-full"
+              :disabled="reajAplicando || reajPercentual == null"
+              @click="aplicarReajuste"
+            >{{ reajAplicando ? "Aplicando…" : "Aplicar reajuste" }}</button>
+          </div>
+        </div>
+        <p v-if="reajResultado" class="rounded-md bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 p-3 text-sm text-green-800 dark:text-green-200">
+          {{ reajResultado }}
         </p>
       </div>
     </template>

@@ -87,6 +87,16 @@ export interface Empenho {
   updated_at: string;
 }
 
+/** Histórico de preços do item (reajustes contratuais/apostilamentos). */
+export interface ItemPreco {
+  id: number;
+  item_id: number;
+  preco_unitario: number;
+  vigencia_inicio: string;
+  referencia: string | null;
+  created_at: string;
+}
+
 /** Item/quantidade vinculado a um empenho (detalhe físico da NE). */
 export interface EmpenhoItem {
   id: number;

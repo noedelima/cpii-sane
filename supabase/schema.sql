@@ -65,6 +65,20 @@ create index if not exists idx_itens_grupo on public.itens(grupo_id);
 create unique index if not exists uq_itens_grupo_catmat
   on public.itens (grupo_id, codigo_catmat) where codigo_catmat is not null;
 
+-- Histórico de preços do item (reajustes contratuais por apostilamento).
+-- O preço vigente continua em itens.preco_unitario (cache); cada reajuste
+-- registra aqui o novo preço com sua data-base e referência documental.
+create table if not exists public.itens_precos (
+  id              bigserial primary key,
+  item_id         bigint not null references public.itens(id) on delete cascade,
+  preco_unitario  numeric(14,4) not null,
+  vigencia_inicio date not null,
+  referencia      text,
+  created_at      timestamptz not null default now(),
+  unique (item_id, vigencia_inicio)
+);
+create index if not exists idx_itens_precos_item on public.itens_precos(item_id);
+
 -- =========================================================
 -- 2) Empenhos
 -- =========================================================
@@ -313,6 +327,7 @@ alter table public.campi          enable row level security;
 alter table public.fornecedores   enable row level security;
 alter table public.grupos         enable row level security;
 alter table public.itens          enable row level security;
+alter table public.itens_precos   enable row level security;
 alter table public.empenhos       enable row level security;
 alter table public.empenhos_grupos enable row level security;
 alter table public.empenhos_itens enable row level security;
@@ -392,9 +407,9 @@ declare t text;
 begin
   -- remove policies anteriores (inclusive as do MVP)
   for t in select unnest(array[
-    'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
-    'empenhos_itens','recibos','recibos_itens','notas_fiscais','nf_itens',
-    'nf_empenhos','atestes','atestes_nfs','perfis'
+    'campi','fornecedores','grupos','itens','itens_precos','empenhos',
+    'empenhos_grupos','empenhos_itens','recibos','recibos_itens',
+    'notas_fiscais','nf_itens','nf_empenhos','atestes','atestes_nfs','perfis'
   ]) loop
     execute format('drop policy if exists p_%s_select on public.%s', t, t);
     execute format('drop policy if exists p_%s_insert on public.%s', t, t);
@@ -404,9 +419,9 @@ begin
 
   -- leitura geral autenticada (perfis tem regra própria abaixo)
   for t in select unnest(array[
-    'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
-    'empenhos_itens','recibos','recibos_itens','notas_fiscais','nf_itens',
-    'nf_empenhos','atestes','atestes_nfs'
+    'campi','fornecedores','grupos','itens','itens_precos','empenhos',
+    'empenhos_grupos','empenhos_itens','recibos','recibos_itens',
+    'notas_fiscais','nf_itens','nf_empenhos','atestes','atestes_nfs'
   ]) loop
     execute format(
       'create policy p_%s_select on public.%s for select to authenticated using (true)', t, t);
@@ -414,8 +429,9 @@ begin
 
   -- escrita SANE/admin no núcleo operacional (inclui grupos/catálogo da ata)
   for t in select unnest(array[
-    'grupos','itens','empenhos','empenhos_grupos','empenhos_itens',
-    'notas_fiscais','nf_itens','nf_empenhos','atestes','atestes_nfs'
+    'grupos','itens','itens_precos','empenhos','empenhos_grupos',
+    'empenhos_itens','notas_fiscais','nf_itens','nf_empenhos',
+    'atestes','atestes_nfs'
   ]) loop
     execute format(
       'create policy p_%s_insert on public.%s for insert to authenticated
@@ -439,9 +455,9 @@ begin
 
   -- delete: só admin
   for t in select unnest(array[
-    'campi','fornecedores','grupos','itens','empenhos','empenhos_grupos',
-    'empenhos_itens','recibos','recibos_itens','notas_fiscais','nf_itens',
-    'nf_empenhos','atestes','atestes_nfs'
+    'campi','fornecedores','grupos','itens','itens_precos','empenhos',
+    'empenhos_grupos','empenhos_itens','recibos','recibos_itens',
+    'notas_fiscais','nf_itens','nf_empenhos','atestes','atestes_nfs'
   ]) loop
     execute format(
       'create policy p_%s_delete on public.%s for delete to authenticated
@@ -499,6 +515,23 @@ create policy p_atestes_delete on public.atestes for delete to authenticated
   using (public.current_papel() in ('sane','admin'));
 drop policy if exists p_atestes_nfs_delete on public.atestes_nfs;
 create policy p_atestes_nfs_delete on public.atestes_nfs for delete to authenticated
+  using (public.current_papel() in ('sane','admin'));
+
+-- Documentos operacionais: SANE também pode excluir (empenhos, NFs e
+-- recibos lançados com erro). As FKs protegem a integridade: NF atestada
+-- bloqueia (atestes_nfs restrict) e NE com débitos bloqueia (nf_empenhos
+-- restrict) — nesses casos é preciso desfazer os vínculos antes.
+drop policy if exists p_empenhos_delete on public.empenhos;
+create policy p_empenhos_delete on public.empenhos for delete to authenticated
+  using (public.current_papel() in ('sane','admin'));
+drop policy if exists p_notas_fiscais_delete on public.notas_fiscais;
+create policy p_notas_fiscais_delete on public.notas_fiscais for delete to authenticated
+  using (public.current_papel() in ('sane','admin'));
+drop policy if exists p_recibos_delete on public.recibos;
+create policy p_recibos_delete on public.recibos for delete to authenticated
+  using (public.current_papel() in ('sane','admin'));
+drop policy if exists p_itens_precos_delete on public.itens_precos;
+create policy p_itens_precos_delete on public.itens_precos for delete to authenticated
   using (public.current_papel() in ('sane','admin'));
 
 -- Linhas de itens (detalhe editável): SANE pode remover durante a edição.
@@ -568,11 +601,14 @@ left join (
 --
 --  A) NF COM itens (nf_itens): vincula ITEM A ITEM (mesmo item de catálogo,
 --     identificado pelo CatMat dentro do grupo) aos empenhos ATIVOS mais
---     antigos que têm o item em empenhos_itens com saldo de QUANTIDADE
---     (empenhado menos o já consumido por outras NFs). Linhas são divididas
---     entre empenhos quando necessário; o que não tiver cobertura fica sem
---     vínculo (relatório 'sem_cobertura'). Ao final, nf_empenhos da NF é
---     RECALCULADO a partir dos itens vinculados (qtd x valor unitário).
+--     antigos que têm o item em empenhos_itens com saldo. O saldo é controlado
+--     PELO VALOR e convertido em quantidade ao preço vigente do catálogo:
+--       saldo_qtd = (qtd_empenhada x preço_da_NE - valor já consumido) / preço_vigente
+--     Assim, após um reajuste (apostilamento), a quantidade restante da NE se
+--     ajusta automaticamente (regra de três), pois o valor da NE não muda.
+--     Linhas são divididas entre empenhos quando necessário; o que não tiver
+--     cobertura fica sem vínculo (relatório 'sem_cobertura'). Ao final,
+--     nf_empenhos da NF é RECALCULADO a partir dos itens vinculados.
 --
 --  B) NF SEM itens (ex.: migradas do Excel): comportamento financeiro
 --     original — completa o valor_total nos empenhos mais antigos com saldo
@@ -630,15 +666,19 @@ begin
 
       for v_emp in
         select e.id, e.numero,
-               ei.quantidade
-               - coalesce((select sum(x.quantidade)
-                           from public.nf_itens x
-                           where x.empenho_id = e.id
-                             and x.item_id = v_item.item_id
-                             and x.nf_id <> p_nf_id), 0) as saldo_qtd
+               (
+                 ei.quantidade * coalesce(ei.valor_unitario, i.preco_unitario)
+                 - coalesce((select sum(x.quantidade * coalesce(x.valor_unitario, 0))
+                             from public.nf_itens x
+                             where x.empenho_id = e.id
+                               and x.item_id = v_item.item_id
+                               and x.nf_id <> p_nf_id), 0)
+               ) / nullif(i.preco_unitario, 0) as saldo_qtd
         from public.empenhos e
         join public.empenhos_itens ei
           on ei.empenho_id = e.id and ei.item_id = v_item.item_id
+        join public.itens i
+          on i.id = v_item.item_id
         join public.empenhos_grupos eg
           on eg.empenho_id = e.id and eg.grupo_id = v_nf.grupo_id
         where e.status = 'ativo'
@@ -859,3 +899,143 @@ $acu$;
 revoke execute on function public.admin_create_user(text, text, text, text, bigint, text) from public;
 revoke execute on function public.admin_create_user(text, text, text, text, bigint, text) from anon;
 grant execute on function public.admin_create_user(text, text, text, text, bigint, text) to authenticated;
+
+-- =========================================================
+-- 13) Reajuste contratual (apostilamento) por grupo
+-- =========================================================
+-- Aplica um percentual sobre o preço vigente de todos os itens ATIVOS do
+-- grupo a partir da data-base, registrando o histórico em itens_precos
+-- (na primeira aplicação, o preço original também é historizado).
+-- ATENÇÃO: aplicar duas vezes acumula o percentual.
+
+create or replace function public.aplicar_reajuste_grupo(
+  p_grupo_id bigint,
+  p_percentual numeric,
+  p_data_base date,
+  p_referencia text default null
+)
+returns table (item_ref text, preco_antigo numeric, preco_novo numeric)
+language plpgsql
+as $rj$
+declare
+  v_item record;
+  v_novo numeric;
+begin
+  if coalesce(public.current_papel(), '') not in ('sane', 'admin') then
+    raise exception 'Apenas SANE/admin aplicam reajuste.';
+  end if;
+  if p_percentual is null or p_percentual <= -100 then
+    raise exception 'Percentual de reajuste inválido.';
+  end if;
+  if p_data_base is null then
+    raise exception 'Informe a data-base do reajuste.';
+  end if;
+
+  for v_item in
+    select i.id, i.descricao, i.codigo_catmat, i.preco_unitario
+    from public.itens i
+    where i.grupo_id = p_grupo_id and i.status = 'ativo'
+    order by i.descricao
+    for update of i
+  loop
+    -- historiza o preço original na primeira aplicação
+    insert into public.itens_precos (item_id, preco_unitario, vigencia_inicio, referencia)
+    values (v_item.id, v_item.preco_unitario, '1900-01-01', 'Preço original (ata)')
+    on conflict (item_id, vigencia_inicio) do nothing;
+
+    v_novo := round(v_item.preco_unitario * (1 + p_percentual / 100), 4);
+
+    insert into public.itens_precos (item_id, preco_unitario, vigencia_inicio, referencia)
+    values (v_item.id, v_novo, p_data_base, p_referencia)
+    on conflict (item_id, vigencia_inicio) do update
+      set preco_unitario = excluded.preco_unitario,
+          referencia = excluded.referencia;
+
+    update public.itens set preco_unitario = v_novo where id = v_item.id;
+
+    item_ref := coalesce(v_item.codigo_catmat || ' — ', '') || v_item.descricao;
+    preco_antigo := v_item.preco_unitario;
+    preco_novo := v_novo;
+    return next;
+  end loop;
+end;
+$rj$;
+
+-- =========================================================
+-- 14) Unificação de notas de empenho
+-- =========================================================
+-- Move todos os vínculos (débitos de NF, itens de NF, itens empenhados e
+-- alocações de grupo) da NE de ORIGEM para a de DESTINO, soma os valores
+-- financeiros e exclui a origem. Para NEs que foram lançadas em duplicidade
+-- (ex.: planilha antiga dividia a NE por grupo).
+
+create or replace function public.merge_empenhos(
+  p_origem_id bigint,
+  p_destino_id bigint
+)
+returns void
+language plpgsql
+as $mg$
+declare
+  v_o record;
+  r record;
+begin
+  if coalesce(public.current_papel(), '') not in ('sane', 'admin') then
+    raise exception 'Apenas SANE/admin unificam empenhos.';
+  end if;
+  if p_origem_id = p_destino_id then
+    raise exception 'Origem e destino devem ser empenhos diferentes.';
+  end if;
+  select * into v_o from public.empenhos where id = p_origem_id for update;
+  if not found then
+    raise exception 'Empenho de origem não encontrado.';
+  end if;
+  perform 1 from public.empenhos where id = p_destino_id for update;
+  if not found then
+    raise exception 'Empenho de destino não encontrado.';
+  end if;
+
+  -- débitos financeiros de NFs (soma quando a NF já debita o destino)
+  for r in select * from public.nf_empenhos where empenho_id = p_origem_id loop
+    insert into public.nf_empenhos (nf_id, empenho_id, valor_debitado, observacoes)
+    values (r.nf_id, p_destino_id, r.valor_debitado,
+            coalesce(r.observacoes || ' · ', '') || 'Unificado da NE ' || v_o.numero)
+    on conflict (nf_id, empenho_id) do update
+      set valor_debitado = public.nf_empenhos.valor_debitado + excluded.valor_debitado;
+    delete from public.nf_empenhos where id = r.id;
+  end loop;
+
+  -- itens de NF apontando para a origem passam ao destino
+  update public.nf_itens set empenho_id = p_destino_id where empenho_id = p_origem_id;
+
+  -- itens empenhados (soma quantidades quando o destino já tem o item)
+  for r in select * from public.empenhos_itens where empenho_id = p_origem_id loop
+    insert into public.empenhos_itens (empenho_id, item_id, quantidade, valor_unitario, observacoes)
+    values (p_destino_id, r.item_id, r.quantidade, r.valor_unitario, r.observacoes)
+    on conflict (empenho_id, item_id) do update
+      set quantidade = public.empenhos_itens.quantidade + excluded.quantidade;
+    delete from public.empenhos_itens where id = r.id;
+  end loop;
+
+  -- alocações por grupo (soma valores; mantém os dois grupos se diferentes)
+  for r in select * from public.empenhos_grupos where empenho_id = p_origem_id loop
+    insert into public.empenhos_grupos (empenho_id, grupo_id, valor_alocado, percentual, observacoes)
+    values (p_destino_id, r.grupo_id, r.valor_alocado, r.percentual, r.observacoes)
+    on conflict (empenho_id, grupo_id) do update
+      set valor_alocado = public.empenhos_grupos.valor_alocado + excluded.valor_alocado;
+    delete from public.empenhos_grupos where id = r.id;
+  end loop;
+
+  -- soma os valores financeiros e registra a trilha
+  update public.empenhos set
+    valor_inicial = valor_inicial + v_o.valor_inicial,
+    reforco = reforco + v_o.reforco,
+    cancelamento = cancelamento + v_o.cancelamento,
+    anulacao = anulacao + v_o.anulacao,
+    observacoes = coalesce(observacoes || ' · ', '')
+      || 'Unificada com a NE ' || v_o.numero || ' em ' || to_char(now(), 'DD/MM/YYYY') || '.'
+  where id = p_destino_id;
+
+  delete from public.empenhos where id = p_origem_id;
+end;
+$mg$;

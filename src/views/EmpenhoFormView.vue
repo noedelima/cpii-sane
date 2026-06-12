@@ -57,6 +57,15 @@ const itemGrupoSel = ref<number | null>(null);
 const itensDoGrupoSel = ref<Item[]>([]);
 const novoItemId = ref<number | null>(null);
 const novaQtd = ref<number | null>(null);
+// consumo (R$ e qtd) por item nesta NE e preço vigente do catálogo
+const consumoPorItem = ref<Map<number, { qtd: number; valor: number }>>(new Map());
+const precoVigente = ref<Map<number, number>>(new Map());
+
+// unificação / exclusão
+const unificarDestinoId = ref<number | null>(null);
+const candidatosUnificacao = ref<{ id: number; numero: string }[]>([]);
+const unificando = ref(false);
+const excluindo = ref(false);
 
 const loading = ref(false);
 const saving = ref(false);
@@ -78,6 +87,27 @@ const itemSelecionado = computed(
   () => itensDoGrupoSel.value.find((i) => i.id === novoItemId.value) ?? null
 );
 
+/** Saldo físico da linha: (valor empenhado - valor consumido) / preço vigente. */
+function saldoLinha(l: LinhaEmpItem): number | null {
+  const pv = precoVigente.value.get(l.item_id);
+  if (!pv) return null;
+  const consumido = consumoPorItem.value.get(l.item_id)?.valor ?? 0;
+  return (l.quantidade * (l.valor_unitario ?? pv) - consumido) / pv;
+}
+
+/** Preço vigente na data de emissão da NE (histórico de apostilamentos). */
+async function precoNaData(itemId: number, data: string): Promise<number | null> {
+  const { data: rows } = await supabase
+    .from("itens_precos")
+    .select("preco_unitario")
+    .eq("item_id", itemId)
+    .lte("vigencia_inicio", data)
+    .order("vigencia_inicio", { ascending: false })
+    .limit(1);
+  const r = (rows as { preco_unitario: number }[] | null) ?? [];
+  return r.length ? Number(r[0].preco_unitario) : null;
+}
+
 async function loadItensDoGrupoSel() {
   itensDoGrupoSel.value = [];
   novoItemId.value = null;
@@ -91,23 +121,81 @@ async function loadItensDoGrupoSel() {
   itensDoGrupoSel.value = (data as Item[] | null) ?? [];
 }
 
-function addEmpItem() {
+async function addEmpItem() {
   const item = itemSelecionado.value;
   if (!item || !novaQtd.value || novaQtd.value <= 0) return;
   if (empItens.value.some((l) => l.item_id === item.id)) {
     error.value = "Este item já está no empenho — edite a quantidade na linha existente.";
     return;
   }
+  // usa o preço vigente NA DATA DE EMISSÃO da NE (NEs antigas: preço pré-reajuste);
+  // o campo segue editável na linha para ajustes manuais
+  const historico = dataEmissao.value ? await precoNaData(item.id, dataEmissao.value) : null;
   empItens.value.push({
     item_id: item.id,
     quantidade: novaQtd.value,
-    valor_unitario: Number(item.preco_unitario),
+    valor_unitario: historico ?? Number(item.preco_unitario),
     _descricao: item.descricao,
     _unidade: item.unidade,
     _catmat: item.codigo_catmat,
   });
+  precoVigente.value.set(item.id, Number(item.preco_unitario));
   novoItemId.value = null;
   novaQtd.value = null;
+}
+
+async function excluirEmpenho() {
+  if (!empenhoId.value) return;
+  if (!confirm(`Excluir a NE ${numero.value}?\n\nEsta ação não pode ser desfeita.`)) return;
+  excluindo.value = true;
+  error.value = null;
+  const { error: err } = await supabase.from("empenhos").delete().eq("id", empenhoId.value);
+  excluindo.value = false;
+  if (err) {
+    error.value = err.message.includes("nf_empenhos")
+      ? "Esta NE tem débitos de notas fiscais vinculados. Transfira-os (unificação) ou remova os débitos nas NFs antes de excluir."
+      : err.message;
+    return;
+  }
+  router.push("/empenhos");
+}
+
+async function loadCandidatosUnificacao() {
+  if (!empenhoId.value) return;
+  let q = supabase
+    .from("empenhos")
+    .select("id, numero")
+    .neq("id", empenhoId.value)
+    .order("data_emissao", { ascending: false })
+    .limit(200);
+  if (fornecedorId.value) q = q.eq("fornecedor_id", fornecedorId.value);
+  const { data } = await q;
+  candidatosUnificacao.value = (data as { id: number; numero: string }[] | null) ?? [];
+}
+
+async function unificarEmpenho() {
+  if (!empenhoId.value || !unificarDestinoId.value) return;
+  const destino = candidatosUnificacao.value.find((x) => x.id === unificarDestinoId.value);
+  const ok = confirm(
+    `Unificar a NE ${numero.value} na NE ${destino?.numero}?\n\n` +
+      `Todos os vínculos (débitos de NFs, itens, alocações) serão transferidos, ` +
+      `os valores serão somados e ESTA NE (${numero.value}) será excluída.`
+  );
+  if (!ok) return;
+  unificando.value = true;
+  error.value = null;
+  const { error: err } = await supabase.rpc("merge_empenhos", {
+    p_origem_id: empenhoId.value,
+    p_destino_id: unificarDestinoId.value,
+  });
+  unificando.value = false;
+  if (err) {
+    error.value = err.message;
+    return;
+  }
+  router.push(`/empenhos/${unificarDestinoId.value}`);
+  // recarrega a tela no destino
+  setTimeout(() => window.location.reload(), 50);
 }
 
 async function removeEmpItem(idx: number) {
@@ -180,6 +268,31 @@ async function loadEmpenho() {
     _unidade: r.itens?.unidade ?? "",
     _catmat: r.itens?.codigo_catmat ?? null,
   }));
+
+  // consumo por item nesta NE (NFs vinculadas) e preço vigente do catálogo
+  const ids = empItens.value.map((l) => l.item_id);
+  consumoPorItem.value = new Map();
+  precoVigente.value = new Map();
+  if (ids.length) {
+    const [cons, precos] = await Promise.all([
+      supabase
+        .from("nf_itens")
+        .select("item_id, quantidade, valor_unitario")
+        .eq("empenho_id", empenhoId.value)
+        .in("item_id", ids),
+      supabase.from("itens").select("id, preco_unitario").in("id", ids),
+    ]);
+    for (const x of ((cons.data as { item_id: number; quantidade: number; valor_unitario: number | null }[] | null) ?? [])) {
+      const e = consumoPorItem.value.get(x.item_id) ?? { qtd: 0, valor: 0 };
+      e.qtd += Number(x.quantidade);
+      e.valor += Number(x.quantidade) * Number(x.valor_unitario ?? 0);
+      consumoPorItem.value.set(x.item_id, e);
+    }
+    for (const p of ((precos.data as { id: number; preco_unitario: number }[] | null) ?? [])) {
+      precoVigente.value.set(p.id, Number(p.preco_unitario));
+    }
+  }
+  await loadCandidatosUnificacao();
   loading.value = false;
 }
 
@@ -463,8 +576,10 @@ onMounted(async () => {
               <th class="text-left py-1">CatMat</th>
               <th class="text-left py-1">Item</th>
               <th class="text-right py-1">Qtd</th>
-              <th class="text-right py-1">Valor unit.</th>
+              <th class="text-right py-1" title="Preço da época da NE — editável">Valor unit. (NE)</th>
               <th class="text-right py-1">Subtotal</th>
+              <th class="text-right py-1">Consumido</th>
+              <th class="text-right py-1" title="Convertido ao preço vigente do catálogo">Saldo (qtd)</th>
               <th class="py-1"></th>
             </tr>
           </thead>
@@ -472,11 +587,19 @@ onMounted(async () => {
             <tr v-for="(l, idx) in empItens" :key="l.id ?? `n${idx}`">
               <td class="py-2 text-slate-600 dark:text-slate-300 w-24">{{ l._catmat ?? "—" }}</td>
               <td class="py-2">{{ l._descricao }}</td>
-              <td class="py-2 text-right w-28">
+              <td class="py-2 text-right w-24">
                 <input v-model.number="l.quantidade" type="number" step="0.001" min="0" class="input text-right" />
               </td>
-              <td class="py-2 text-right tabular-nums w-28">{{ fmtMoney(l.valor_unitario) }}</td>
-              <td class="py-2 text-right tabular-nums w-28">{{ fmtMoney(l.quantidade * (l.valor_unitario ?? 0)) }}</td>
+              <td class="py-2 text-right w-28">
+                <input v-model.number="l.valor_unitario" type="number" step="0.0001" min="0" class="input text-right" />
+              </td>
+              <td class="py-2 text-right tabular-nums w-24">{{ fmtMoney(l.quantidade * (l.valor_unitario ?? 0)) }}</td>
+              <td class="py-2 text-right tabular-nums w-24 text-slate-600 dark:text-slate-300">
+                {{ consumoPorItem.get(l.item_id)?.qtd?.toFixed(3) ?? "0" }} {{ l._unidade }}
+              </td>
+              <td class="py-2 text-right tabular-nums w-24" :class="(saldoLinha(l) ?? 0) < 0 ? 'text-red-600 dark:text-red-400' : ''">
+                {{ saldoLinha(l) == null ? "—" : saldoLinha(l)!.toFixed(3) + " " + l._unidade }}
+              </td>
               <td class="py-2 text-right w-20">
                 <button type="button" class="text-red-600 dark:text-red-400 text-xs hover:underline" @click="removeEmpItem(idx)">
                   remover
@@ -491,11 +614,49 @@ onMounted(async () => {
             difere do valor líquido ({{ fmtMoney(valorLiquido) }})
           </span>
         </p>
+        <p v-if="empItens.length" class="text-xs text-slate-500 dark:text-slate-400">
+          O valor unitário é o da época da NE (sugerido pelo histórico de apostilamentos
+          conforme a data de emissão; editável). O saldo em quantidade é convertido ao
+          preço vigente do catálogo — após um reajuste, ele se ajusta automaticamente.
+        </p>
       </div>
 
       <div class="card p-5">
         <label class="label">Observações</label>
         <textarea v-model="observacoes" rows="3" class="input"></textarea>
+      </div>
+
+      <div v-if="editMode" class="card p-5 space-y-4 border-red-200 dark:border-red-900">
+        <h2 class="font-medium text-slate-700 dark:text-slate-200">Manutenção da NE</h2>
+        <div class="grid sm:grid-cols-12 gap-3 items-end">
+          <div class="sm:col-span-7">
+            <label class="label">Unificar esta NE em outra (esta será excluída; vínculos e valores transferidos)</label>
+            <select v-model="unificarDestinoId" class="input">
+              <option :value="null" disabled>Selecione a NE de destino…</option>
+              <option v-for="c in candidatosUnificacao" :key="c.id" :value="c.id">{{ c.numero }}</option>
+            </select>
+          </div>
+          <div class="sm:col-span-3">
+            <button
+              type="button"
+              class="btn-secondary w-full"
+              :disabled="!unificarDestinoId || unificando"
+              @click="unificarEmpenho"
+            >{{ unificando ? "Unificando…" : "Unificar" }}</button>
+          </div>
+          <div class="sm:col-span-2">
+            <button
+              type="button"
+              class="btn w-full bg-red-600 text-white hover:bg-red-700"
+              :disabled="excluindo"
+              @click="excluirEmpenho"
+            >{{ excluindo ? "Excluindo…" : "Excluir NE" }}</button>
+          </div>
+        </div>
+        <p class="text-xs text-slate-500 dark:text-slate-400">
+          A exclusão é bloqueada se houver débitos de NFs vinculados — nesse caso,
+          unifique em outra NE ou remova os débitos primeiro.
+        </p>
       </div>
 
       <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300">

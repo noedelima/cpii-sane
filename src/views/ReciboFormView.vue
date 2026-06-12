@@ -47,6 +47,7 @@ let nfTimer: ReturnType<typeof setTimeout> | null = null;
 
 const loading = ref(false);
 const saving = ref(false);
+const excluindo = ref(false);
 const error = ref<string | null>(null);
 const aviso = ref<string | null>(null);
 
@@ -235,6 +236,20 @@ async function removerLinha(idx: number) {
     }
   }
   linhas.value.splice(idx, 1);
+}
+
+async function excluirRecibo() {
+  if (!reciboId.value) return;
+  if (!confirm(`Excluir o recibo ${numero.value}?\n\nOs itens do recibo serão removidos junto. Esta ação não pode ser desfeita.`)) return;
+  excluindo.value = true;
+  error.value = null;
+  const { error: err } = await supabase.from("recibos").delete().eq("id", reciboId.value);
+  excluindo.value = false;
+  if (err) {
+    error.value = err.message;
+    return;
+  }
+  router.push("/recibos");
 }
 
 async function salvar() {
@@ -465,17 +480,27 @@ onMounted(async () => {
       </div>
       <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300">{{ error }}</div>
 
-      <div class="flex justify-end gap-2">
-        <button @click="router.push('/recibos')" type="button" class="btn-ghost">Voltar</button>
+      <div class="flex justify-between gap-2">
         <button
-          v-if="podeEditarCabecalho"
-          @click="salvar"
-          :disabled="saving"
+          v-if="editMode && auth.isSane"
           type="button"
-          class="btn-primary"
-        >
-          {{ saving ? "Salvando…" : editMode ? "Salvar alterações" : "Salvar recibo" }}
-        </button>
+          class="btn bg-red-600 text-white hover:bg-red-700"
+          :disabled="excluindo"
+          @click="excluirRecibo"
+        >{{ excluindo ? "Excluindo…" : "Excluir recibo" }}</button>
+        <span v-else></span>
+        <div class="flex gap-2">
+          <button @click="router.push('/recibos')" type="button" class="btn-ghost">Voltar</button>
+          <button
+            v-if="podeEditarCabecalho"
+            @click="salvar"
+            :disabled="saving"
+            type="button"
+            class="btn-primary"
+          >
+            {{ saving ? "Salvando…" : editMode ? "Salvar alterações" : "Salvar recibo" }}
+          </button>
+        </div>
       </div>
     </template>
   </div>

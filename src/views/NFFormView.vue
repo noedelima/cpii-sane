@@ -61,6 +61,7 @@ const mesclando = ref(false);
 const loading = ref(false);
 const saving = ref(false);
 const distribuindo = ref(false);
+const excluindo = ref(false);
 const error = ref<string | null>(null);
 const aviso = ref<string | null>(null);
 
@@ -406,6 +407,22 @@ async function addRateioManual() {
   await Promise.all([loadRateios(), loadEmpenhosDoGrupo()]);
 }
 
+async function excluirNF() {
+  if (!nfId.value) return;
+  if (!confirm(`Excluir a NF ${numero.value}?\n\nItens e débitos em empenhos serão removidos junto. Esta ação não pode ser desfeita.`)) return;
+  excluindo.value = true;
+  error.value = null;
+  const { error: err } = await supabase.from("notas_fiscais").delete().eq("id", nfId.value);
+  excluindo.value = false;
+  if (err) {
+    error.value = err.message.includes("atestes_nfs")
+      ? "Esta NF já entrou em um ateste. Exclua o ateste correspondente (tela Ateste → Atestes emitidos) antes de excluir a NF."
+      : err.message;
+    return;
+  }
+  router.push("/nfs");
+}
+
 async function salvarRateio(r: RateioRow) {
   error.value = null;
   const { error: err } = await supabase
@@ -718,11 +735,21 @@ onMounted(async () => {
         {{ error }}
       </div>
 
-      <div class="flex justify-end gap-2">
-        <button @click="router.push('/nfs')" type="button" class="btn-ghost">Voltar</button>
-        <button @click="salvar()" :disabled="saving" type="button" class="btn-primary">
-          {{ saving ? "Salvando…" : editMode ? "Salvar alterações" : "Criar NF" }}
-        </button>
+      <div class="flex justify-between gap-2">
+        <button
+          v-if="editMode"
+          type="button"
+          class="btn bg-red-600 text-white hover:bg-red-700"
+          :disabled="excluindo"
+          @click="excluirNF"
+        >{{ excluindo ? "Excluindo…" : "Excluir NF" }}</button>
+        <span v-else></span>
+        <div class="flex gap-2">
+          <button @click="router.push('/nfs')" type="button" class="btn-ghost">Voltar</button>
+          <button @click="salvar()" :disabled="saving" type="button" class="btn-primary">
+            {{ saving ? "Salvando…" : editMode ? "Salvar alterações" : "Criar NF" }}
+          </button>
+        </div>
       </div>
     </template>
   </div>
