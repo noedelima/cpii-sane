@@ -10,26 +10,42 @@ interface LinhaPerfil extends Perfil {
 
 const perfis = ref<LinhaPerfil[]>([]);
 const campi = ref<Campus[]>([]);
+// perfil_id -> campus_ids vinculados (tabela perfis_campi)
+const campiPorPerfil = ref<Map<string, number[]>>(new Map());
 const loading = ref(true);
 const error = ref<string | null>(null);
 
 const papeis: { value: Papel; label: string; hint: string }[] = [
   { value: "admin", label: "Admin", hint: "gestão completa, usuários e cadastros" },
   { value: "sane", label: "SANE", hint: "itens, empenhos e notas fiscais" },
-  { value: "campus", label: "Campus", hint: "recibos do próprio campus" },
+  { value: "campus", label: "Campus", hint: "recibos dos campi vinculados" },
   { value: "outros", label: "Outros", hint: "somente visualização" },
 ];
+
+const campusNome = (id: number) => campi.value.find((c) => c.id === id)?.nome ?? `#${id}`;
+function nomesCampi(perfilId: string): string {
+  const ids = campiPorPerfil.value.get(perfilId) ?? [];
+  if (!ids.length) return "—";
+  return ids.map(campusNome).join(", ");
+}
 
 async function load() {
   loading.value = true;
   error.value = null;
-  const [p, c] = await Promise.all([
+  const [p, c, pc] = await Promise.all([
     supabase.from("perfis").select("*").order("nome"),
     supabase.from("campi").select("*").eq("status", "ativo").order("nome"),
+    supabase.from("perfis_campi").select("perfil_id, campus_id"),
   ]);
   if (p.error) error.value = p.error.message;
   perfis.value = (p.data as LinhaPerfil[] | null) ?? [];
   campi.value = (c.data as Campus[] | null) ?? [];
+  campiPorPerfil.value = new Map();
+  for (const r of ((pc.data as { perfil_id: string; campus_id: number }[] | null) ?? [])) {
+    const arr = campiPorPerfil.value.get(r.perfil_id) ?? [];
+    arr.push(r.campus_id);
+    campiPorPerfil.value.set(r.perfil_id, arr);
+  }
   loading.value = false;
 }
 
@@ -44,9 +60,15 @@ const novo = ref({
   email: "",
   matricula: "",
   papel: "outros" as Papel,
-  campus_id: null as number | null,
+  campi: [] as number[],
   senha: "",
 });
+
+function toggleNovoCampus(id: number) {
+  const i = novo.value.campi.indexOf(id);
+  if (i >= 0) novo.value.campi.splice(i, 1);
+  else novo.value.campi.push(id);
+}
 
 function abrirNovo() {
   novo.value = {
@@ -54,7 +76,7 @@ function abrirNovo() {
     email: "",
     matricula: "",
     papel: "outros",
-    campus_id: null,
+    campi: [],
     senha: gerarSenha(),
   };
   novoError.value = null;
@@ -74,19 +96,31 @@ async function criarUsuario() {
     novoError.value = "A senha deve ter ao menos 10 caracteres.";
     return;
   }
-  if (n.papel === "campus" && !n.campus_id) {
-    novoError.value = "Selecione o campus para o papel Campus.";
+  if (n.papel === "campus" && n.campi.length === 0) {
+    novoError.value = "Selecione ao menos um campus para o papel Campus.";
     return;
   }
   novoSaving.value = true;
-  const { error: err } = await supabase.rpc("admin_create_user", {
+  const { data, error: err } = await supabase.rpc("admin_create_user", {
     p_email: n.email.trim(),
     p_password: n.senha,
     p_nome: n.nome.trim(),
     p_papel: n.papel,
-    p_campus_id: n.campus_id,
+    p_campus_id: n.campi[0] ?? null,
     p_matricula: n.matricula.trim() || null,
   });
+  if (!err && n.campi.length) {
+    const novoId = data as string;
+    const { error: e2 } = await supabase
+      .from("perfis_campi")
+      .insert(n.campi.map((c) => ({ perfil_id: novoId, campus_id: c })));
+    if (e2) {
+      novoSaving.value = false;
+      novoError.value = `Usuário criado, mas falhou ao vincular campi: ${e2.message}`;
+      await load();
+      return;
+    }
+  }
   novoSaving.value = false;
   if (err) {
     novoError.value = err.message;
@@ -103,6 +137,52 @@ async function copiarNovaSenha() {
     setTimeout(() => (novoCopiado.value = false), 1500);
   } catch {
     /* clipboard indisponível */
+  }
+}
+
+// --- campi vinculados (admin) ---
+const campiUser = ref<LinhaPerfil | null>(null);
+const campiSel = ref<Set<number>>(new Set());
+const campiSaving = ref(false);
+const campiErr = ref<string | null>(null);
+
+function abrirCampi(linha: LinhaPerfil) {
+  campiUser.value = linha;
+  campiSel.value = new Set(campiPorPerfil.value.get(linha.id) ?? []);
+  campiErr.value = null;
+}
+function toggleCampi(id: number) {
+  const s = new Set(campiSel.value);
+  if (s.has(id)) s.delete(id);
+  else s.add(id);
+  campiSel.value = s;
+}
+async function salvarCampi() {
+  if (!campiUser.value) return;
+  campiSaving.value = true;
+  campiErr.value = null;
+  const id = campiUser.value.id;
+  const ids = [...campiSel.value];
+  try {
+    const { error: e1 } = await supabase.from("perfis_campi").delete().eq("perfil_id", id);
+    if (e1) throw e1;
+    if (ids.length) {
+      const { error: e2 } = await supabase
+        .from("perfis_campi")
+        .insert(ids.map((c) => ({ perfil_id: id, campus_id: c })));
+      if (e2) throw e2;
+    }
+    // campus principal (compatibilidade) = primeiro vinculado
+    const principal = ids[0] ?? null;
+    const { error: e3 } = await supabase.from("perfis").update({ campus_id: principal }).eq("id", id);
+    if (e3) throw e3;
+    campiPorPerfil.value.set(id, ids);
+    campiUser.value.campus_id = principal;
+    campiUser.value = null;
+  } catch (e) {
+    campiErr.value = e instanceof Error ? e.message : "Falha ao salvar os campi.";
+  } finally {
+    campiSaving.value = false;
   }
 }
 
@@ -166,7 +246,6 @@ async function salvar(linha: LinhaPerfil) {
     .from("perfis")
     .update({
       papel: linha.papel,
-      campus_id: linha.papel === "campus" ? linha.campus_id : linha.campus_id ?? null,
       nome: linha.nome,
       matricula_siape: linha.matricula_siape?.trim() || null,
     })
@@ -187,12 +266,12 @@ onMounted(load);
   <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8">
     <div class="mb-6 flex flex-wrap items-start justify-between gap-3">
       <div>
-      <h1 class="text-2xl font-semibold">Usuários</h1>
-      <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
-        Novos usuários entram como <strong>Outros</strong> (somente visualização) ao se
-        cadastrarem pelo login. Defina aqui o papel, a matrícula SIAPE (usada na
-        assinatura do ateste) e, para o papel Campus, o campus vinculado.
-      </p>
+        <h1 class="text-2xl font-semibold">Usuários</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
+          Novos usuários entram como <strong>Outros</strong> (somente visualização) ao se
+          cadastrarem pelo login. Defina aqui o papel, a matrícula SIAPE (usada na
+          assinatura do ateste) e, para o papel Campus, os campi vinculados (um ou mais).
+        </p>
       </div>
       <button class="btn-primary" @click="abrirNovo">+ Novo usuário</button>
     </div>
@@ -206,14 +285,14 @@ onMounted(load);
       <div v-else-if="!perfis.length" class="p-6 text-center text-slate-500 dark:text-slate-400">
         Nenhum usuário cadastrado ainda.
       </div>
-      <table v-else class="w-full text-sm min-w-[44rem]">
+      <table v-else class="w-full text-sm min-w-[46rem]">
         <thead class="bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs">
           <tr>
             <th class="px-4 py-2 text-left">Nome</th>
             <th class="px-4 py-2 text-left">E-mail</th>
             <th class="px-4 py-2 text-left">SIAPE</th>
             <th class="px-4 py-2 text-left">Papel</th>
-            <th class="px-4 py-2 text-left">Campus</th>
+            <th class="px-4 py-2 text-left">Campi</th>
             <th class="px-4 py-2"></th>
           </tr>
         </thead>
@@ -239,11 +318,13 @@ onMounted(load);
                 </option>
               </select>
             </td>
-            <td class="px-4 py-2 min-w-[11rem]">
-              <select v-model="p.campus_id" class="input" :disabled="p.papel !== 'campus'">
-                <option :value="null">—</option>
-                <option v-for="c in campi" :key="c.id" :value="c.id">{{ c.nome }}</option>
-              </select>
+            <td class="px-4 py-2 min-w-[12rem]">
+              <div class="flex items-center gap-2">
+                <span class="text-slate-600 dark:text-slate-300 truncate max-w-[10rem]" :title="nomesCampi(p.id)">
+                  {{ nomesCampi(p.id) }}
+                </span>
+                <button class="btn-ghost text-xs shrink-0" @click="abrirCampi(p)">Editar</button>
+              </div>
             </td>
             <td class="px-4 py-2 text-right whitespace-nowrap space-x-2">
               <button class="btn-ghost" @click="abrirPwd(p)">Definir senha</button>
@@ -259,7 +340,8 @@ onMounted(load);
     <p class="text-xs text-slate-500 dark:text-slate-400 mt-3">
       Use <strong>+ Novo usuário</strong> para cadastrar um servidor com senha inicial
       (nenhum e-mail é enviado). <strong>Definir senha</strong> redefine o acesso de quem
-      já existe — útil porque o e-mail institucional nem sempre recebe o link de login.
+      já existe. Em <strong>Campi</strong>, vincule um ou mais campi a um perfil — o usuário
+      Campus poderá lançar recibos para qualquer campus vinculado.
     </p>
 
     <!-- Modal: novo usuário -->
@@ -294,17 +376,25 @@ onMounted(load);
               </select>
             </div>
             <div>
-              <label class="label">Campus</label>
-              <select v-model="novo.campus_id" class="input" :disabled="novo.papel !== 'campus'">
-                <option :value="null">—</option>
-                <option v-for="c in campi" :key="c.id" :value="c.id">{{ c.nome }}</option>
-              </select>
-            </div>
-            <div class="sm:col-span-2">
               <label class="label">Senha inicial (sugerida — pode editar)</label>
               <div class="flex gap-2">
                 <input v-model="novo.senha" type="text" class="input font-mono" spellcheck="false" />
                 <button type="button" class="btn-secondary shrink-0" @click="novo.senha = gerarSenha()">↻</button>
+              </div>
+            </div>
+            <div class="sm:col-span-2">
+              <label class="label">Campi vinculados {{ novo.papel === "campus" ? "(obrigatório)" : "(opcional)" }}</label>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="c in campi"
+                  :key="c.id"
+                  type="button"
+                  class="rounded-full border px-3 py-1 text-sm transition-colors"
+                  :class="novo.campi.includes(c.id)
+                    ? 'bg-cpii-600 text-white border-cpii-600'
+                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:border-cpii-500'"
+                  @click="toggleNovoCampus(c.id)"
+                >{{ c.nome }}</button>
               </div>
             </div>
           </div>
@@ -336,6 +426,42 @@ onMounted(load);
             <button class="btn-primary" @click="novoOpen = false">Fechar</button>
           </div>
         </template>
+      </div>
+    </div>
+
+    <!-- Modal: campi vinculados -->
+    <div
+      v-if="campiUser"
+      class="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 dark:bg-black/70 px-4"
+      @click.self="campiUser = null"
+    >
+      <div class="card w-full max-w-md p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">
+          Campi vinculados — {{ campiUser.nome }}
+        </h2>
+        <p class="text-sm text-slate-600 dark:text-slate-300">
+          Marque os campi sob responsabilidade deste usuário. O primeiro selecionado é o
+          campus principal.
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="c in campi"
+            :key="c.id"
+            type="button"
+            class="rounded-full border px-3 py-1 text-sm transition-colors"
+            :class="campiSel.has(c.id)
+              ? 'bg-cpii-600 text-white border-cpii-600'
+              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:border-cpii-500'"
+            @click="toggleCampi(c.id)"
+          >{{ c.nome }}</button>
+        </div>
+        <p v-if="campiErr" class="text-sm text-red-600 dark:text-red-400">{{ campiErr }}</p>
+        <div class="flex justify-end gap-2">
+          <button class="btn-ghost" @click="campiUser = null">Cancelar</button>
+          <button class="btn-primary" :disabled="campiSaving" @click="salvarCampi">
+            {{ campiSaving ? "Salvando…" : "Salvar campi" }}
+          </button>
+        </div>
       </div>
     </div>
 

@@ -25,6 +25,7 @@ interface LinhaNFItem {
   item_id: number;
   quantidade: number;
   valor_unitario: number | null;
+  empenho_id: number | null;
   _descricao: string;
   _unidade: string;
   _catmat: string | null;
@@ -44,6 +45,8 @@ const editMode = computed(() => nfId.value != null);
 const grupos = ref<Grupo[]>([]);
 const fornecedores = ref<Fornecedor[]>([]);
 const empenhosDoGrupo = ref<VwEmpenhoSaldo[]>([]);
+// empenhos por grupo, para o menu suspenso de NE por item (lançamento manual)
+const empenhosPorGrupo = ref<Map<number, VwEmpenhoSaldo[]>>(new Map());
 
 const numero = ref("");
 // multi-grupo: gruposSel[0] é o grupo "principal" (cabeçalho/fornecedor)
@@ -81,6 +84,7 @@ let buscaTimer: ReturnType<typeof setTimeout> | null = null;
 const loading = ref(false);
 const saving = ref(false);
 const distribuindo = ref(false);
+const recalculando = ref(false);
 const excluindo = ref(false);
 const gerandoPdf = ref(false);
 const error = ref<string | null>(null);
@@ -165,14 +169,12 @@ function labelGrupoDoItem(item: Item): string {
 function addNFItem() {
   const item = itemSelecionadoNF.value;
   if (!item || !novaQtd.value || novaQtd.value <= 0) return;
-  if (nfItens.value.some((l) => l.item_id === item.id)) {
-    error.value = "Este item já está na NF — edite a quantidade na linha existente.";
-    return;
-  }
+  // o mesmo item pode entrar em mais de uma linha (split por NE no lançamento manual)
   nfItens.value.push({
     item_id: item.id,
     quantidade: novaQtd.value,
     valor_unitario: Number(item.preco_unitario),
+    empenho_id: null,
     _descricao: item.descricao,
     _unidade: item.unidade,
     _catmat: item.codigo_catmat,
@@ -208,6 +210,7 @@ async function loadNFItens() {
     .order("id");
   type NIRow = {
     id: number; item_id: number; quantidade: number; valor_unitario: number | null;
+    empenho_id: number | null;
     itens: { descricao: string; unidade: string; codigo_catmat: string | null; grupo_id: number } | null;
     empenhos: { numero: string } | null;
   };
@@ -216,6 +219,7 @@ async function loadNFItens() {
     item_id: r.item_id,
     quantidade: Number(r.quantidade),
     valor_unitario: r.valor_unitario == null ? null : Number(r.valor_unitario),
+    empenho_id: r.empenho_id ?? null,
     _descricao: r.itens?.descricao ?? "—",
     _unidade: r.itens?.unidade ?? "",
     _catmat: r.itens?.codigo_catmat ?? null,
@@ -345,23 +349,36 @@ async function baixarRecibosUnificados() {
 
 async function loadEmpenhosDoGrupo() {
   empenhosDoGrupo.value = [];
+  empenhosPorGrupo.value = new Map();
   rateioEmpenhoId.value = null;
   if (!gruposSel.value.length) return;
   // empenhos alocados a QUALQUER grupo selecionado, com saldo calculado pela view
-  const { data: ids } = await supabase
+  const { data: pares } = await supabase
     .from("empenhos_grupos")
-    .select("empenho_id")
+    .select("empenho_id, grupo_id")
     .in("grupo_id", gruposSel.value);
-  const lista = Array.from(
-    new Set(((ids as { empenho_id: number }[] | null) ?? []).map((x) => x.empenho_id))
-  );
+  const paresArr = (pares as { empenho_id: number; grupo_id: number }[] | null) ?? [];
+  const lista = Array.from(new Set(paresArr.map((x) => x.empenho_id)));
   if (!lista.length) return;
   const { data } = await supabase
     .from("vw_empenho_saldos")
     .select("*")
     .in("id", lista)
     .order("data_emissao");
-  empenhosDoGrupo.value = (data as VwEmpenhoSaldo[] | null) ?? [];
+  const saldos = (data as VwEmpenhoSaldo[] | null) ?? [];
+  empenhosDoGrupo.value = saldos;
+  const byId = new Map(saldos.map((s) => [s.id, s]));
+  for (const p of paresArr) {
+    const arr = empenhosPorGrupo.value.get(p.grupo_id) ?? [];
+    const s = byId.get(p.empenho_id);
+    if (s && !arr.some((x) => x.id === s.id)) arr.push(s);
+    empenhosPorGrupo.value.set(p.grupo_id, arr);
+  }
+}
+
+/** NEs disponíveis para o menu suspenso de um item (empenhos do grupo do item). */
+function empenhosDoItem(l: LinhaNFItem): VwEmpenhoSaldo[] {
+  return empenhosPorGrupo.value.get(l._grupoId) ?? empenhosDoGrupo.value;
 }
 
 async function loadRateios() {
@@ -480,6 +497,7 @@ async function salvar(voltar = true) {
           item_id: l.item_id,
           quantidade: l.quantidade,
           valor_unitario: l.valor_unitario,
+          empenho_id: l.empenho_id ?? null,
         };
         if (l.id) {
           const { error: e2 } = await supabase.from("nf_itens").update(linha).eq("id", l.id);
@@ -538,6 +556,54 @@ async function distribuirFifo() {
     error.value = e instanceof Error ? e.message : "Falha na distribuição pela fila.";
   } finally {
     distribuindo.value = false;
+  }
+}
+
+async function recalcularDebitoPelosItens() {
+  if (!nfId.value) return;
+  error.value = null;
+  aviso.value = null;
+  const ok = await salvar(false);
+  if (!ok) return;
+  recalculando.value = true;
+  try {
+    const { data } = await supabase
+      .from("nf_itens")
+      .select("empenho_id, quantidade, valor_unitario")
+      .eq("nf_id", nfId.value);
+    type Row = { empenho_id: number | null; quantidade: number; valor_unitario: number | null };
+    const rows = (data as Row[] | null) ?? [];
+    const agg = new Map<number, number>();
+    let semNe = 0;
+    for (const r of rows) {
+      if (r.empenho_id == null) {
+        semNe++;
+        continue;
+      }
+      const v = Number(r.quantidade) * Number(r.valor_unitario ?? 0);
+      agg.set(r.empenho_id, (agg.get(r.empenho_id) ?? 0) + v);
+    }
+    await supabase.from("nf_empenhos").delete().eq("nf_id", nfId.value);
+    const inserts = [...agg.entries()].map(([empenho_id, valor]) => ({
+      nf_id: nfId.value,
+      empenho_id,
+      valor_debitado: Math.round(valor * 100) / 100,
+      observacoes: "Lançamento manual por item",
+    }));
+    if (inserts.length) {
+      const { error: err } = await supabase.from("nf_empenhos").insert(inserts);
+      if (err) throw err;
+    }
+    await Promise.all([loadRateios(), loadEmpenhosDoGrupo(), loadNFItens()]);
+    aviso.value =
+      `Débito recalculado pelas atribuições manuais (${agg.size} empenho(s)).` +
+      (semNe
+        ? ` ${semNe} item(ns) sem NE selecionada ficaram de fora — selecione a NE na coluna “Empenho”.`
+        : "");
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Falha ao recalcular o débito pelos itens.";
+  } finally {
+    recalculando.value = false;
   }
 }
 
@@ -821,16 +887,13 @@ onMounted(async () => {
               <tr v-for="(l, idx) in nfItens" :key="l.id ?? `n${idx}`">
                 <td class="py-2 text-slate-600 dark:text-slate-300 w-24">{{ l._catmat ?? "—" }}</td>
                 <td class="py-2">{{ l._descricao }}</td>
-                <td class="py-2 w-32">
-                  <span
-                    v-if="l._empenhoNumero"
-                    class="inline-block rounded-full border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300 px-2 py-0.5 text-xs"
-                  >{{ l._empenhoNumero }}</span>
-                  <span
-                    v-else
-                    class="inline-block rounded-full border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-xs"
-                    title="Sem vínculo — rode a distribuição pela fila ou empenhe o item"
-                  >pendente</span>
+                <td class="py-2 w-44">
+                  <select v-model="l.empenho_id" class="input py-1 text-xs" title="NE do grupo deste item (lançamento manual)">
+                    <option :value="null">— sem NE —</option>
+                    <option v-for="e in empenhosDoItem(l)" :key="e.id" :value="e.id">
+                      {{ e.numero }} (saldo {{ fmtMoney(e.saldo) }})
+                    </option>
+                  </select>
                 </td>
                 <td class="py-2 text-right w-24">
                   <input v-model.number="l.quantidade" type="number" step="0.001" min="0" class="input text-right" />
@@ -864,9 +927,11 @@ onMounted(async () => {
           Nenhum item lançado — selecione acima. (Os itens são gravados ao salvar a NF.)
         </p>
         <p v-if="nfItens.length" class="text-xs text-slate-500 dark:text-slate-400">
-          O valor unitário é editável (use o preço faturado). O seletor “usar preço do histórico”
-          traz o preço original e os reajustes por apostilamento. “Distribuir pela fila” vincula
-          cada item ao empenho mais antigo do seu grupo com saldo (pelo CatMat) e recalcula o débito.
+          Valor unitário editável (use o preço faturado) e seletor do histórico (preço original e
+          reajustes). A coluna <strong>Empenho</strong> permite escolher manualmente a NE de cada item —
+          para catalogar NFs antigas, adicione o mesmo item em mais de uma linha e divida a quantidade
+          por NE (ex.: 290 kg na NE1 e 210 kg na NE2). Use “Débito pelos itens” para gerar o rateio a
+          partir dessas escolhas, ou “Distribuir pela fila” para o automático (mais antigo primeiro).
         </p>
       </div>
 
@@ -948,7 +1013,7 @@ onMounted(async () => {
       <div v-if="editMode" class="card p-5 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h2 class="font-medium text-slate-700 dark:text-slate-200">Débito em empenhos</h2>
-          <div class="flex gap-2">
+          <div class="flex flex-wrap gap-2">
             <button
               type="button"
               class="btn-secondary"
@@ -957,8 +1022,16 @@ onMounted(async () => {
             >{{ gerandoPdf ? "Gerando…" : "PDF de lançamento" }}</button>
             <button
               type="button"
+              class="btn-secondary"
+              :disabled="recalculando"
+              title="Gera o débito a partir das NEs escolhidas em cada item (lançamento manual)"
+              @click="recalcularDebitoPelosItens"
+            >{{ recalculando ? "Atualizando…" : "Débito pelos itens" }}</button>
+            <button
+              type="button"
               class="btn-primary"
               :disabled="distribuindo || !valorTotal"
+              title="Automático: vincula ao empenho mais antigo com saldo e SOBRESCREVE as escolhas manuais"
               @click="distribuirFifo"
             >
               {{ distribuindo ? "Distribuindo…" : "Distribuir pela fila" }}

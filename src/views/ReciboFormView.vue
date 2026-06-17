@@ -13,6 +13,7 @@ interface LinhaItem {
   descricao: string;
   unidade: string;
   quantidade: number;
+  preco_unitario: number;
 }
 
 const route = useRoute();
@@ -60,6 +61,9 @@ const podeEditarCabecalho = computed(() => !editMode.value || auth.isSane);
 const podeAdicionarItens = computed(() => auth.isSane || isCampusDono.value || !editMode.value);
 
 const itemAtual = computed(() => itensDoGrupo.value.find((i) => i.id === itemId.value));
+const totalEstimado = computed(() =>
+  linhas.value.reduce((a, l) => a + l.quantidade * (l.preco_unitario ?? 0), 0)
+);
 
 async function loadReferenceData() {
   const [c, g] = await Promise.all([
@@ -93,7 +97,7 @@ async function loadRecibo() {
     supabase.from("recibos").select("*").eq("id", reciboId.value).single(),
     supabase
       .from("recibos_itens")
-      .select("*, itens (descricao, unidade)")
+      .select("*, itens (descricao, unidade, preco_unitario)")
       .eq("recibo_id", reciboId.value)
       .order("id"),
   ]);
@@ -114,7 +118,7 @@ async function loadRecibo() {
 
   type RIRow = {
     id: number; item_id: number; quantidade: number; unidade: string | null;
-    itens: { descricao: string; unidade: string } | null;
+    itens: { descricao: string; unidade: string; preco_unitario: number } | null;
   };
   linhas.value = ((ri.data as unknown as (RIRow[] | null)) ?? []).map((x) => ({
     id: x.id,
@@ -122,6 +126,7 @@ async function loadRecibo() {
     descricao: x.itens?.descricao ?? "—",
     unidade: x.unidade ?? x.itens?.unidade ?? "",
     quantidade: Number(x.quantidade),
+    preco_unitario: Number(x.itens?.preco_unitario ?? 0),
   }));
 
   await Promise.all([loadItensDoGrupo(), loadNFAtual(), loadNFCandidatas()]);
@@ -183,6 +188,7 @@ function adicionarItemLocal() {
     descricao: itemAtual.value.descricao,
     unidade: itemAtual.value.unidade,
     quantidade: quantidade.value,
+    preco_unitario: Number(itemAtual.value.preco_unitario),
   });
   itemId.value = null;
   quantidade.value = null;
@@ -216,6 +222,7 @@ async function adicionarItem() {
     descricao: itemAtual.value.descricao,
     unidade: itemAtual.value.unidade,
     quantidade: quantidade.value,
+    preco_unitario: Number(itemAtual.value.preco_unitario),
   });
   itemId.value = null;
   quantidade.value = null;
@@ -445,6 +452,10 @@ onMounted(async () => {
             <button @click="adicionarItem" type="button" class="btn-secondary w-full">Adicionar</button>
           </div>
         </div>
+        <p v-if="itemAtual" class="text-xs text-slate-500 dark:text-slate-400">
+          Preço unitário (ref. catálogo):
+          <strong>{{ fmtMoney(itemAtual.preco_unitario) }}</strong> por {{ itemAtual.unidade }}
+        </p>
 
         <div v-if="linhas.length" class="border-t border-slate-200 dark:border-slate-700 pt-4">
           <table class="w-full text-sm">
@@ -453,6 +464,8 @@ onMounted(async () => {
                 <th class="text-left py-1">Item</th>
                 <th class="text-right py-1">Qtd</th>
                 <th class="text-left py-1 pl-3">Un.</th>
+                <th class="text-right py-1">Vlr unit. (ref.)</th>
+                <th class="text-right py-1">Subtotal (ref.)</th>
                 <th class="py-1"></th>
               </tr>
             </thead>
@@ -461,6 +474,8 @@ onMounted(async () => {
                 <td class="py-2">{{ l.descricao }}</td>
                 <td class="py-2 text-right tabular-nums">{{ l.quantidade }}</td>
                 <td class="py-2 pl-3">{{ l.unidade }}</td>
+                <td class="py-2 text-right tabular-nums">{{ fmtMoney(l.preco_unitario) }}</td>
+                <td class="py-2 text-right tabular-nums">{{ fmtMoney(l.quantidade * (l.preco_unitario ?? 0)) }}</td>
                 <td class="py-2 text-right">
                   <button
                     v-if="!l.id || auth.isSane"
@@ -470,7 +485,17 @@ onMounted(async () => {
                 </td>
               </tr>
             </tbody>
+            <tfoot>
+              <tr class="border-t border-slate-300 dark:border-slate-600 font-medium">
+                <td class="py-2" colspan="4">Valor total estimado do recibo</td>
+                <td class="py-2 text-right tabular-nums">{{ fmtMoney(totalEstimado) }}</td>
+                <td></td>
+              </tr>
+            </tfoot>
           </table>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">
+            Valor de referência pelo preço vigente do catálogo; o valor faturado é definido na nota fiscal.
+          </p>
         </div>
         <p v-else class="text-sm text-slate-500 dark:text-slate-400">Nenhum item adicionado.</p>
       </div>

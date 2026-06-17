@@ -1197,3 +1197,60 @@ left join (
   where empenho_id is not null
   group by empenho_id, item_id
 ) c on c.empenho_id = e.id and c.item_id = ei.item_id;
+
+-- =========================================================
+-- 16) Múltiplos campi por perfil (vínculo N:N) — 06/2026
+-- =========================================================
+-- perfis.campus_id segue como campus PRINCIPAL (compatibilidade); perfis_campi
+-- guarda o conjunto completo, permitindo um usuário responsável por vários campi.
+create table if not exists public.perfis_campi (
+  id        bigserial primary key,
+  perfil_id uuid   not null references public.perfis(id) on delete cascade,
+  campus_id bigint not null references public.campi(id) on delete cascade,
+  unique (perfil_id, campus_id)
+);
+create index if not exists idx_perfis_campi_perfil on public.perfis_campi(perfil_id);
+-- backfill do campus único atual
+insert into public.perfis_campi (perfil_id, campus_id)
+select id, campus_id from public.perfis where campus_id is not null
+on conflict (perfil_id, campus_id) do nothing;
+
+alter table public.perfis_campi enable row level security;
+drop policy if exists p_perfis_campi_select on public.perfis_campi;
+create policy p_perfis_campi_select on public.perfis_campi for select to authenticated
+  using (perfil_id = auth.uid() or public.current_papel() = 'admin');
+drop policy if exists p_perfis_campi_insert on public.perfis_campi;
+create policy p_perfis_campi_insert on public.perfis_campi for insert to authenticated
+  with check (public.current_papel() = 'admin');
+drop policy if exists p_perfis_campi_delete on public.perfis_campi;
+create policy p_perfis_campi_delete on public.perfis_campi for delete to authenticated
+  using (public.current_papel() = 'admin');
+
+-- conjunto de campi do usuário atual (principal + vinculados)
+create or replace function public.current_campus_ids()
+returns setof bigint language sql stable security definer set search_path = public
+as $cci$
+  select campus_id from public.perfis where id = auth.uid() and campus_id is not null
+  union
+  select campus_id from public.perfis_campi where perfil_id = auth.uid()
+$cci$;
+
+-- Recibos: campus insere/edita para QUALQUER campus vinculado (principal ou adicional).
+drop policy if exists p_recibos_insert on public.recibos;
+create policy p_recibos_insert on public.recibos for insert to authenticated
+  with check (
+    public.current_papel() in ('sane','admin')
+    or (public.current_papel() = 'campus' and campus_id in (select public.current_campus_ids()))
+  );
+drop policy if exists p_recibos_itens_insert on public.recibos_itens;
+create policy p_recibos_itens_insert on public.recibos_itens for insert to authenticated
+  with check (
+    public.current_papel() in ('sane','admin')
+    or (
+      public.current_papel() = 'campus'
+      and exists (
+        select 1 from public.recibos r
+        where r.id = recibo_id and r.campus_id in (select public.current_campus_ids())
+      )
+    )
+  );

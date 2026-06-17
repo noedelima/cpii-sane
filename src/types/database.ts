@@ -281,6 +281,13 @@ export interface SolicitacaoNFRecibo {
   recibo_id: number;
 }
 
+/** Campus vinculado a um perfil (N:N — usuário responsável por vários campi). */
+export interface PerfilCampus {
+  id: number;
+  perfil_id: string;
+  campus_id: number;
+}
+
 /** View vw_empenho_item_saldos — saldo por item de cada empenho (qtd e R$). */
 export interface VwEmpenhoItemSaldo {
   empenho_id: number;
