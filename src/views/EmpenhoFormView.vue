@@ -526,9 +526,14 @@ onMounted(async () => {
 
 <template>
   <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-    <h1 class="text-2xl font-semibold">
-      {{ editMode ? `Empenho ${numero || "…"}` : "Novo empenho" }}
-    </h1>
+    <div>
+      <h1 class="text-2xl font-semibold">
+        {{ editMode ? `Empenho ${numero || "…"}` : "Novo empenho" }}
+      </h1>
+      <p v-if="editMode" class="text-sm text-slate-500 dark:text-slate-400 mt-1">
+        Cadastrado por <strong>{{ criadoPorNome ?? "—" }}</strong> em {{ dataHora(criadoEm) }}<span v-if="atualizadoEm && atualizadoEm !== criadoEm"> · atualizado em {{ dataHora(atualizadoEm) }}</span>
+      </p>
+    </div>
 
     <div v-if="loading" class="card p-6 text-center text-slate-500 dark:text-slate-400">Carregando…</div>
 
@@ -728,15 +733,9 @@ onMounted(async () => {
         </p>
       </div>
 
-      <div class="card p-5 space-y-3">
-        <div>
-          <label class="label">Observações</label>
-          <textarea v-model="observacoes" rows="3" class="input"></textarea>
-        </div>
-        <p v-if="editMode" class="text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700 pt-3">
-          Cadastrado por <strong>{{ criadoPorNome ?? "—" }}</strong> em {{ dataHora(criadoEm) }}
-          <span v-if="atualizadoEm && atualizadoEm !== criadoEm"> · última atualização em {{ dataHora(atualizadoEm) }}</span>
-        </p>
+      <div class="card p-5">
+        <label class="label">Observações</label>
+        <textarea v-model="observacoes" rows="3" class="input"></textarea>
       </div>
 
       <div v-if="editMode" class="card p-5 space-y-4">

@@ -61,6 +61,8 @@ watch(busca, () => {
 });
 watch(pagina, load);
 
+const dataHora = (ts: string | null) => (ts ? new Date(ts).toLocaleString("pt-BR") : "—");
+
 const statusClasse: Record<string, string> = {
   rascunho: "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
   pendente: "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900",
@@ -116,6 +118,7 @@ onMounted(async () => {
             <th class="px-4 py-2 text-right">Valor</th>
             <th class="px-4 py-2 text-left">Processo pgto.</th>
             <th class="px-4 py-2 text-left">Status</th>
+            <th class="px-4 py-2 text-left">Autor</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -139,6 +142,9 @@ onMounted(async () => {
                 class="inline-block rounded-full border px-2 py-0.5 text-xs capitalize"
                 :class="statusClasse[n.status] ?? ''"
               >{{ n.status }}</span>
+            </td>
+            <td class="px-4 py-2 text-slate-600 dark:text-slate-300" :title="`Cadastrada em ${dataHora(n.created_at)}`">
+              {{ n.criado_por_nome ?? "—" }}
             </td>
           </tr>
         </tbody>

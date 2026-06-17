@@ -560,7 +560,8 @@ select
   f.codigo as fornecedor,
   (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao)::numeric(14,2) as valor_liquido,
   coalesce(d.debitado, 0)::numeric(14,2) as utilizado,
-  (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao - coalesce(d.debitado, 0))::numeric(14,2) as saldo
+  (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao - coalesce(d.debitado, 0))::numeric(14,2) as saldo,
+  e.criado_por_nome, e.created_at
 from public.empenhos e
 left join public.fornecedores f on f.id = e.fornecedor_id
 left join (

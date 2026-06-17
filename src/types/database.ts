@@ -229,6 +229,8 @@ export interface VwEmpenhoSaldo {
   valor_liquido: number;
   utilizado: number;
   saldo: number;
+  criado_por_nome: string | null;
+  created_at: string;
 }
 
 /** View vw_grupo_resumo — alocação x utilização por grupo. */

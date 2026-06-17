@@ -78,6 +78,7 @@ const statusClasse: Record<string, string> = {
   cancelado: "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
   anulado: "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900",
 };
+const dataHora = (ts: string | null) => (ts ? new Date(ts).toLocaleString("pt-BR") : "—");
 
 // ---- req 10: saldo por grupo ----
 async function consultarSaldoGrupo() {
@@ -346,6 +347,7 @@ onMounted(load);
             <th class="px-4 py-2 text-right">Utilizado</th>
             <th class="px-4 py-2 text-right">Saldo</th>
             <th class="px-4 py-2 text-left">Status</th>
+            <th class="px-4 py-2 text-left">Autor</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -385,6 +387,9 @@ onMounted(load);
                 :class="statusClasse[e.status] ?? 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
               >{{ e.status }}</span>
             </td>
+            <td class="px-4 py-2 text-slate-600 dark:text-slate-300" :title="`Cadastrado em ${dataHora(e.created_at)}`">
+              {{ e.criado_por_nome ?? "—" }}
+            </td>
           </tr>
         </tbody>
         <tfoot class="bg-slate-50 dark:bg-slate-700/50 font-medium">
@@ -394,6 +399,7 @@ onMounted(load);
             <td class="px-4 py-2 text-right tabular-nums">{{ fmtMoney(totais.liquido) }}</td>
             <td class="px-4 py-2 text-right tabular-nums">{{ fmtMoney(totais.utilizado) }}</td>
             <td class="px-4 py-2 text-right tabular-nums">{{ fmtMoney(totais.saldo) }}</td>
+            <td></td>
             <td></td>
           </tr>
         </tfoot>

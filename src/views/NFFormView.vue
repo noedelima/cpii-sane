@@ -773,9 +773,14 @@ onMounted(async () => {
 
 <template>
   <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-    <h1 class="text-2xl font-semibold">
-      {{ editMode ? `NF ${numero || "…"}` : "Nova nota fiscal" }}
-    </h1>
+    <div>
+      <h1 class="text-2xl font-semibold">
+        {{ editMode ? `NF ${numero || "…"}` : "Nova nota fiscal" }}
+      </h1>
+      <p v-if="editMode" class="text-sm text-slate-500 dark:text-slate-400 mt-1">
+        Cadastrada por <strong>{{ criadoPorNome ?? "—" }}</strong> em {{ dataHora(criadoEm) }}<span v-if="atualizadoEm && atualizadoEm !== criadoEm"> · atualizada em {{ dataHora(atualizadoEm) }}</span>
+      </p>
+    </div>
 
     <div v-if="loading" class="card p-6 text-center text-slate-500 dark:text-slate-400">Carregando…</div>
 
@@ -856,10 +861,6 @@ onMounted(async () => {
             <textarea v-model="observacoes" rows="2" class="input"></textarea>
           </div>
         </div>
-        <p v-if="editMode" class="text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700 pt-3">
-          Cadastrada por <strong>{{ criadoPorNome ?? "—" }}</strong> em {{ dataHora(criadoEm) }}
-          <span v-if="atualizadoEm && atualizadoEm !== criadoEm"> · última atualização em {{ dataHora(atualizadoEm) }}</span>
-        </p>
       </div>
 
       <div v-if="editMode" class="card p-5 space-y-4">
