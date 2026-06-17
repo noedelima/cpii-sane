@@ -484,9 +484,10 @@ async function salvar(voltar = true) {
 
     // sincroniza nf_grupos (apaga e reinsere o conjunto selecionado)
     await supabase.from("nf_grupos").delete().eq("nf_id", id);
-    await supabase
+    const { error: egErr } = await supabase
       .from("nf_grupos")
       .insert(gruposSel.value.map((g) => ({ nf_id: id, grupo_id: g })));
+    if (egErr) throw egErr;
 
     // persiste itens da NF (update/insert)
     if (editMode.value) {
@@ -517,7 +518,15 @@ async function salvar(voltar = true) {
     if (voltar) router.push("/nfs");
     return true;
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "Erro ao salvar.";
+    const err = e as { message?: string; code?: string; details?: string };
+    const txt = `${err?.message ?? ""} ${err?.details ?? ""}`;
+    if (err?.code === "23505" || /duplicate key|already exists|unique/i.test(txt)) {
+      error.value =
+        `Já existe uma NF com o número ${numero.value} neste grupo. ` +
+        `Abra a NF existente na lista de Notas Fiscais para editá-la — não é preciso criar de novo.`;
+    } else {
+      error.value = err?.message || "Erro ao salvar.";
+    }
     return false;
   } finally {
     saving.value = false;
