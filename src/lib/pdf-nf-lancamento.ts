@@ -31,6 +31,7 @@ export interface NFLancParams {
   empenhos: NFLancEmpenho[];
   emitidoPor: string;
   logoDataUrl: string | null;
+  cabecalho?: { orgao: string; setor1: string; setor2: string };
 }
 
 const M = 18;
@@ -40,12 +41,17 @@ export function montarPdfNFLancamento(p: NFLancParams): { doc: jsPDF; filename: 
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
 
+  const cab = p.cabecalho ?? {
+    orgao: "COLÉGIO PEDRO II",
+    setor1: "Pró-Reitoria de Administração — PROAD",
+    setor2: "Seção de Alimentação e Nutrição — SANE",
+  };
   if (p.logoDataUrl) doc.addImage(p.logoDataUrl, "PNG", M, 12, 24, 19.5);
   doc.setFont("helvetica", "bold").setFontSize(13).setTextColor(0);
-  doc.text("COLÉGIO PEDRO II", W / 2, 17, { align: "center" });
+  doc.text(cab.orgao, W / 2, 17, { align: "center" });
   doc.setFont("helvetica", "normal").setFontSize(9);
-  doc.text("Pró-Reitoria de Administração — PROAD", W / 2, 22.5, { align: "center" });
-  doc.text("Seção de Alimentação e Nutrição — SANE", W / 2, 27, { align: "center" });
+  doc.text(cab.setor1, W / 2, 22.5, { align: "center" });
+  doc.text(cab.setor2, W / 2, 27, { align: "center" });
   doc.setDrawColor(30, 58, 138).setLineWidth(0.6);
   doc.line(M, 34, W - M, 34);
   doc.setFont("helvetica", "bold").setFontSize(12);

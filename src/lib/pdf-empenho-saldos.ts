@@ -33,6 +33,7 @@ export interface EmpenhoSaldosParams {
   emitidoPor: string;
   dataGeracao?: Date;
   logoDataUrl: string | null;
+  cabecalho?: { orgao: string; setor1: string; setor2: string };
 }
 
 const M = 18;
@@ -43,14 +44,20 @@ function qtd(n: number | null | undefined, un: string): string {
 }
 
 /** Desenha o cabeçalho institucional e devolve o Y para o conteúdo. */
-function cabecalho(doc: jsPDF, logo: string | null, titulo: string, subtitulo: string): number {
+function cabecalho(
+  doc: jsPDF,
+  logo: string | null,
+  titulo: string,
+  subtitulo: string,
+  cab: { orgao: string; setor1: string; setor2: string }
+): number {
   const W = doc.internal.pageSize.getWidth();
   if (logo) doc.addImage(logo, "PNG", M, 12, 24, 19.5);
   doc.setFont("helvetica", "bold").setFontSize(13).setTextColor(0);
-  doc.text("COLÉGIO PEDRO II", W / 2, 17, { align: "center" });
+  doc.text(cab.orgao, W / 2, 17, { align: "center" });
   doc.setFont("helvetica", "normal").setFontSize(9);
-  doc.text("Pró-Reitoria de Administração — PROAD", W / 2, 22.5, { align: "center" });
-  doc.text("Seção de Alimentação e Nutrição — SANE", W / 2, 27, { align: "center" });
+  doc.text(cab.setor1, W / 2, 22.5, { align: "center" });
+  doc.text(cab.setor2, W / 2, 27, { align: "center" });
   doc.setDrawColor(30, 58, 138).setLineWidth(0.6);
   doc.line(M, 34, W - M, 34);
   doc.setFont("helvetica", "bold").setFontSize(12);
@@ -72,7 +79,12 @@ export function montarPdfEmpenhoSaldos(p: EmpenhoSaldosParams): {
     ? "DEMONSTRATIVO DE SALDOS DE EMPENHO"
     : `SALDO DO EMPENHO ${p.blocos[0]?.numero ?? ""}`;
 
-  let y = cabecalho(doc, p.logoDataUrl, titulo, "Gêneros alimentícios — saldos para conferência da contratada");
+  const cab = p.cabecalho ?? {
+    orgao: "COLÉGIO PEDRO II",
+    setor1: "Pró-Reitoria de Administração — PROAD",
+    setor2: "Seção de Alimentação e Nutrição — SANE",
+  };
+  let y = cabecalho(doc, p.logoDataUrl, titulo, "Gêneros alimentícios — saldos para conferência da contratada", cab);
 
   // bloco de identificação do fornecedor
   autoTable(doc, {

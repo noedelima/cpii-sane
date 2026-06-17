@@ -7,6 +7,7 @@ import { fmtDate, fmtMoney } from "@/lib/format";
 import PdfUpload from "@/components/PdfUpload.vue";
 import { carregarLogo } from "@/lib/pdf-ateste";
 import { montarPdfNFLancamento } from "@/lib/pdf-nf-lancamento";
+import { getCabecalho } from "@/lib/config";
 import type {
   Fornecedor,
   Grupo,
@@ -61,6 +62,10 @@ const ocorrencias = ref("");
 const observacoes = ref("");
 const linkPdf = ref<string | null>(null);
 const linkCobranca = ref<string | null>(null);
+const criadoPorNome = ref<string | null>(null);
+const criadoEm = ref<string | null>(null);
+const atualizadoEm = ref<string | null>(null);
+const dataHora = (ts: string | null) => (ts ? new Date(ts).toLocaleString("pt-BR") : "—");
 
 const rateios = ref<RateioRow[]>([]);
 const rateioEmpenhoId = ref<number | null>(null);
@@ -423,6 +428,9 @@ async function loadNF() {
   observacoes.value = nf.observacoes ?? "";
   linkPdf.value = nf.link_pdf;
   linkCobranca.value = nf.link_instrumento_cobranca;
+  criadoPorNome.value = nf.criado_por_nome;
+  criadoEm.value = nf.created_at;
+  atualizadoEm.value = nf.updated_at;
 
   // grupos da NF (nf_grupos; fallback ao grupo principal)
   const { data: gs } = await supabase
@@ -475,7 +483,11 @@ async function salvar(voltar = true) {
     } else {
       const { data, error: err } = await supabase
         .from("notas_fiscais")
-        .insert(payload)
+        .insert({
+          ...payload,
+          criado_por: auth.user?.id ?? null,
+          criado_por_nome: auth.perfil?.nome ?? null,
+        })
         .select("id")
         .single();
       if (err || !data) throw err ?? new Error("Falha ao criar NF.");
@@ -727,6 +739,7 @@ async function gerarPdfLancamento() {
       empenhos,
       emitidoPor: auth.perfil?.nome ?? "",
       logoDataUrl: await carregarLogo(),
+      cabecalho: await getCabecalho(),
     });
     doc.save(filename);
   } catch (e) {
@@ -843,6 +856,10 @@ onMounted(async () => {
             <textarea v-model="observacoes" rows="2" class="input"></textarea>
           </div>
         </div>
+        <p v-if="editMode" class="text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700 pt-3">
+          Cadastrada por <strong>{{ criadoPorNome ?? "—" }}</strong> em {{ dataHora(criadoEm) }}
+          <span v-if="atualizadoEm && atualizadoEm !== criadoEm"> · última atualização em {{ dataHora(atualizadoEm) }}</span>
+        </p>
       </div>
 
       <div v-if="editMode" class="card p-5 space-y-4">

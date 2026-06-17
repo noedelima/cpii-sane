@@ -34,6 +34,10 @@ const grupoId = ref<number | null>(null);
 const observacoes = ref("");
 const linkPdf = ref<string | null>(null);
 const status = ref<Recibo["status"]>("pendente");
+const responsavelNome = ref<string | null>(null);
+const criadoEm = ref<string | null>(null);
+const atualizadoEm = ref<string | null>(null);
+const dataHora = (ts: string | null) => (ts ? new Date(ts).toLocaleString("pt-BR") : "—");
 
 const itemId = ref<number | null>(null);
 const quantidade = ref<number | null>(null);
@@ -115,6 +119,9 @@ async function loadRecibo() {
   linkPdf.value = rec.link_pdf;
   status.value = rec.status;
   nfId.value = rec.nf_id;
+  responsavelNome.value = rec.responsavel_nome;
+  criadoEm.value = rec.created_at;
+  atualizadoEm.value = rec.updated_at;
 
   type RIRow = {
     id: number; item_id: number; quantidade: number; unidade: string | null;
@@ -293,6 +300,7 @@ async function salvar() {
           observacoes: observacoes.value || null,
           link_pdf: linkPdf.value,
           responsavel_user_id: auth.user?.id ?? null,
+          responsavel_nome: auth.perfil?.nome ?? null,
           status: "pendente",
         })
         .select("id")
@@ -385,6 +393,10 @@ onMounted(async () => {
           <textarea v-model="observacoes" rows="2" class="input" :disabled="!podeEditarCabecalho && !isCampusDono"></textarea>
         </div>
         <PdfUpload v-model="linkPdf" bucket="pdfs-recibos" label="PDF do recibo (opcional)" />
+        <p v-if="editMode" class="text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700 pt-3">
+          Cadastrado por <strong>{{ responsavelNome ?? "—" }}</strong> em {{ dataHora(criadoEm) }}
+          <span v-if="atualizadoEm && atualizadoEm !== criadoEm"> · última atualização em {{ dataHora(atualizadoEm) }}</span>
+        </p>
       </div>
 
       <!-- Vínculo com NF (SANE) -->

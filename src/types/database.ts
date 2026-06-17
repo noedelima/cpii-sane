@@ -83,6 +83,8 @@ export interface Empenho {
   link_pdf: string | null;
   status: StatusEmpenho;
   observacoes: string | null;
+  criado_por: string | null;
+  criado_por_nome: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -120,6 +122,7 @@ export interface Recibo {
   observacoes: string | null;
   status: StatusDoc;
   responsavel_user_id: string | null;
+  responsavel_nome: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -154,6 +157,8 @@ export interface NotaFiscal {
   avaliacao_conformidade: string | null;
   observacoes: string | null;
   status: StatusDoc;
+  criado_por: string | null;
+  criado_por_nome: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -286,6 +291,31 @@ export interface PerfilCampus {
   id: number;
   perfil_id: string;
   campus_id: number;
+}
+
+/** Parâmetro de configuração global (chave/valor). */
+export interface Configuracao {
+  chave: string;
+  valor: string | null;
+  descricao: string | null;
+  updated_at: string;
+}
+
+/** Registro de auditoria (log global). */
+export interface AuditLog {
+  id: number;
+  ts: string;
+  actor_id: string | null;
+  actor_nome: string | null;
+  acao: "INSERT" | "UPDATE" | "DELETE";
+  entidade: string;
+  registro_id: string | null;
+  resumo: string | null;
+  dados: {
+    alterados?: string[];
+    antes?: Record<string, unknown>;
+    depois?: Record<string, unknown>;
+  } | null;
 }
 
 /** View vw_empenho_item_saldos — saldo por item de cada empenho (qtd e R$). */

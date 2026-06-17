@@ -5,6 +5,7 @@ import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { carregarLogo } from "@/lib/pdf-ateste";
 import { montarPdfSolicitacaoNF } from "@/lib/pdf-solicitacao-nf";
+import { getCabecalho } from "@/lib/config";
 import type { Fornecedor, Grupo, Recibo, SolicitacaoNF } from "@/types/database";
 
 type ReciboRow = Recibo & { campi?: { nome: string } | null };
@@ -248,6 +249,7 @@ async function gerarSolicitacao() {
       observacoes: observacoes.value.trim() || null,
       emitidoPor: auth.perfil?.nome ?? "",
       logoDataUrl: await carregarLogo(),
+      cabecalho: await getCabecalho(),
     });
     doc.save(filename);
 
@@ -340,6 +342,7 @@ async function rebaixarPdf(s: SolicRow) {
       observacoes: s.observacoes,
       emitidoPor: s.gerado_por_nome ?? "",
       logoDataUrl: await carregarLogo(),
+      cabecalho: await getCabecalho(),
     });
     doc.save(filename);
   } catch (e) {

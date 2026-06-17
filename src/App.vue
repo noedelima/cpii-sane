@@ -94,10 +94,10 @@ const navItems = computed(() => {
           >{{ item.label }}</RouterLink>
           <RouterLink
             v-if="auth.isAdmin"
-            to="/admin/usuarios"
+            to="/admin"
             class="px-3 py-1.5 rounded-md text-sm hover:bg-cpii-700 transition-colors"
             active-class="bg-cpii-700"
-          >Usuários</RouterLink>
+          >Administração</RouterLink>
         </nav>
 
         <div class="text-sm relative flex items-center gap-1">
@@ -159,10 +159,10 @@ const navItems = computed(() => {
         >{{ item.label }}</RouterLink>
         <RouterLink
           v-if="auth.isAdmin"
-          to="/admin/usuarios"
+          to="/admin"
           class="px-3 py-1 rounded-md text-xs whitespace-nowrap hover:bg-cpii-700"
           active-class="bg-cpii-700"
-        >Usuários</RouterLink>
+        >Administração</RouterLink>
       </nav>
     </header>
 

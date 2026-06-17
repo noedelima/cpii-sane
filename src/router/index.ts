@@ -109,10 +109,14 @@ const routes: RouteRecordRaw[] = [
     meta: { roles: ["sane"] },
   },
   {
-    path: "/admin/usuarios",
-    name: "admin-usuarios",
-    component: () => import("@/views/AdminUsuariosView.vue"),
+    path: "/admin",
+    name: "admin",
+    component: () => import("@/views/AdminView.vue"),
     meta: { roles: [] }, // somente admin
+  },
+  {
+    path: "/admin/usuarios",
+    redirect: { name: "admin" },
   },
   {
     path: "/:pathMatch(.*)*",

@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { carregarLogo, montarPdfAteste } from "@/lib/pdf-ateste";
+import { getCabecalho, getLocalEmissao } from "@/lib/config";
 import type { Ateste, Fornecedor, Grupo, NotaFiscal } from "@/types/database";
 
 type AtesteRow = Ateste & {
@@ -237,6 +238,7 @@ async function gerarAteste() {
       assinanteNome: auth.perfil?.nome ?? "",
       assinanteMatricula: auth.perfil?.matricula_siape ?? null,
       logoDataUrl: await carregarLogo(),
+      cabecalho: await getCabecalho(),
     });
     doc.save(filename);
 
@@ -294,6 +296,7 @@ async function baixarDoHistorico(a: AtesteRow) {
       assinanteNome: a.gerado_por_nome ?? "",
       assinanteMatricula: a.gerado_por_matricula,
       logoDataUrl: await carregarLogo(),
+      cabecalho: await getCabecalho(),
     });
     doc.save(filename);
   } catch (e) {
@@ -322,6 +325,7 @@ async function excluirAteste(a: AtesteRow) {
 }
 
 onMounted(async () => {
+  localEmissao.value = await getLocalEmissao();
   await Promise.all([loadFornecedores(), loadHistorico()]);
 });
 </script>

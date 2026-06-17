@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { carregarLogo } from "@/lib/pdf-ateste";
 import { montarPdfEmpenhoSaldos, type EmpenhoSaldoBloco } from "@/lib/pdf-empenho-saldos";
+import { getCabecalho } from "@/lib/config";
 import type { Fornecedor, Grupo, VwEmpenhoItemSaldo, VwEmpenhoSaldo } from "@/types/database";
 
 const auth = useAuthStore();
@@ -213,6 +214,7 @@ async function gerarPdfNes() {
       blocos,
       emitidoPor: auth.perfil?.nome ?? "",
       logoDataUrl: await carregarLogo(),
+      cabecalho: await getCabecalho(),
     });
     doc.save(filename);
   } catch (e) {

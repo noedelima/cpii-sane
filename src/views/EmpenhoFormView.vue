@@ -7,6 +7,7 @@ import { fmtDate, fmtMoney } from "@/lib/format";
 import PdfUpload from "@/components/PdfUpload.vue";
 import { carregarLogo } from "@/lib/pdf-ateste";
 import { montarPdfEmpenhoSaldos } from "@/lib/pdf-empenho-saldos";
+import { getCabecalho } from "@/lib/config";
 import type { Empenho, Fornecedor, Grupo, Item, VwEmpenhoItemSaldo } from "@/types/database";
 
 interface Alocacao {
@@ -58,6 +59,10 @@ const status = ref<Empenho["status"]>("ativo");
 const processoSuap = ref("");
 const observacoes = ref("");
 const linkPdf = ref<string | null>(null);
+const criadoPorNome = ref<string | null>(null);
+const criadoEm = ref<string | null>(null);
+const atualizadoEm = ref<string | null>(null);
+const dataHora = (ts: string | null) => (ts ? new Date(ts).toLocaleString("pt-BR") : "—");
 
 const alocacoes = ref<Alocacao[]>([]);
 
@@ -260,6 +265,9 @@ async function loadEmpenho() {
   processoSuap.value = emp.processo_suap ?? "";
   observacoes.value = emp.observacoes ?? "";
   linkPdf.value = emp.link_pdf;
+  criadoPorNome.value = emp.criado_por_nome;
+  criadoEm.value = emp.created_at;
+  atualizadoEm.value = emp.updated_at;
   alocacoes.value = ((a.data as Alocacao[] | null) ?? []).map((l) => ({
     ...l,
     valor_alocado: Number(l.valor_alocado),
@@ -372,7 +380,11 @@ async function salvar() {
     } else {
       const { data, error: err } = await supabase
         .from("empenhos")
-        .insert(payload)
+        .insert({
+          ...payload,
+          criado_por: auth.user?.id ?? null,
+          criado_por_nome: auth.perfil?.nome ?? null,
+        })
         .select("id")
         .single();
       if (err || !data) throw err ?? new Error("Falha ao criar empenho.");
@@ -496,6 +508,7 @@ async function gerarPdfSaldos() {
       ],
       emitidoPor: auth.perfil?.nome ?? "",
       logoDataUrl: await carregarLogo(),
+      cabecalho: await getCabecalho(),
     });
     doc.save(filename);
   } catch (e) {
@@ -715,9 +728,15 @@ onMounted(async () => {
         </p>
       </div>
 
-      <div class="card p-5">
-        <label class="label">Observações</label>
-        <textarea v-model="observacoes" rows="3" class="input"></textarea>
+      <div class="card p-5 space-y-3">
+        <div>
+          <label class="label">Observações</label>
+          <textarea v-model="observacoes" rows="3" class="input"></textarea>
+        </div>
+        <p v-if="editMode" class="text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700 pt-3">
+          Cadastrado por <strong>{{ criadoPorNome ?? "—" }}</strong> em {{ dataHora(criadoEm) }}
+          <span v-if="atualizadoEm && atualizadoEm !== criadoEm"> · última atualização em {{ dataHora(atualizadoEm) }}</span>
+        </p>
       </div>
 
       <div v-if="editMode" class="card p-5 space-y-4">

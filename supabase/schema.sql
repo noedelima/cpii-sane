@@ -1254,3 +1254,138 @@ create policy p_recibos_itens_insert on public.recibos_itens for insert to authe
       )
     )
   );
+
+-- =========================================================
+-- 17) Auditoria, autoria (mini-log) e configurações globais — 06/2026
+-- =========================================================
+
+-- 17.1) Autoria de cadastro (mini-log local). created_at/updated_at já existem;
+-- guardamos um snapshot do nome para exibir sem depender do RLS de perfis.
+alter table public.recibos        add column if not exists responsavel_nome text;
+alter table public.notas_fiscais  add column if not exists criado_por uuid references auth.users(id) on delete set null;
+alter table public.notas_fiscais  add column if not exists criado_por_nome text;
+alter table public.empenhos       add column if not exists criado_por uuid references auth.users(id) on delete set null;
+alter table public.empenhos       add column if not exists criado_por_nome text;
+-- backfill do nome do responsável dos recibos (a partir do perfil)
+update public.recibos r set responsavel_nome = p.nome
+  from public.perfis p
+  where p.id = r.responsavel_user_id and r.responsavel_nome is null;
+
+-- 17.2) Configurações globais (chave/valor) editadas pelo admin.
+create table if not exists public.configuracoes (
+  chave      text primary key,
+  valor      text,
+  descricao  text,
+  updated_at timestamptz not null default now()
+);
+insert into public.configuracoes (chave, valor, descricao) values
+  ('local_emissao_padrao', 'Rio de Janeiro', 'Local de emissão padrão nos documentos (ateste, solicitação de NF).'),
+  ('cabecalho_orgao',  'COLÉGIO PEDRO II', 'Linha 1 do cabeçalho dos PDFs.'),
+  ('cabecalho_setor1', 'Pró-Reitoria de Administração — PROAD', 'Linha 2 do cabeçalho dos PDFs.'),
+  ('cabecalho_setor2', 'Seção de Alimentação e Nutrição — SANE', 'Linha 3 do cabeçalho dos PDFs.')
+on conflict (chave) do nothing;
+
+alter table public.configuracoes enable row level security;
+drop policy if exists p_config_select on public.configuracoes;
+create policy p_config_select on public.configuracoes for select to authenticated using (true);
+drop policy if exists p_config_insert on public.configuracoes;
+create policy p_config_insert on public.configuracoes for insert to authenticated
+  with check (public.current_papel() = 'admin');
+drop policy if exists p_config_update on public.configuracoes;
+create policy p_config_update on public.configuracoes for update to authenticated
+  using (public.current_papel() = 'admin') with check (public.current_papel() = 'admin');
+drop trigger if exists trg_config_updated on public.configuracoes;
+create trigger trg_config_updated before update on public.configuracoes
+  for each row execute function public.set_updated_at();
+
+-- 17.3) Log de auditoria (global). Preenchido por gatilho; leitura só admin.
+create table if not exists public.audit_log (
+  id          bigserial primary key,
+  ts          timestamptz not null default now(),
+  actor_id    uuid,
+  actor_nome  text,
+  acao        text not null,        -- INSERT | UPDATE | DELETE
+  entidade    text not null,        -- nome da tabela
+  registro_id text,                 -- id (ou chave) do registro afetado
+  resumo      text,                 -- número/nome para leitura rápida
+  dados       jsonb                 -- { alterados, antes, depois }
+);
+create index if not exists idx_audit_log_ts on public.audit_log(ts desc);
+create index if not exists idx_audit_log_entidade on public.audit_log(entidade);
+create index if not exists idx_audit_log_actor on public.audit_log(actor_id);
+
+alter table public.audit_log enable row level security;
+drop policy if exists p_audit_log_select on public.audit_log;
+create policy p_audit_log_select on public.audit_log for select to authenticated
+  using (public.current_papel() = 'admin');
+-- sem policies de escrita: clientes não inserem; só o gatilho (definer) grava.
+
+-- função genérica de auditoria (usa jsonb — robusta a tabelas sem coluna id)
+create or replace function public.fn_audit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $audit$
+declare
+  v_actor uuid := auth.uid();
+  v_nome  text;
+  v_new   jsonb := case when tg_op = 'DELETE' then null else to_jsonb(new) end;
+  v_old   jsonb := case when tg_op = 'INSERT' then null else to_jsonb(old) end;
+  v_ref   jsonb := coalesce(v_new, v_old);
+  v_rid   text;
+  v_changed text[];
+  v_dados jsonb;
+begin
+  v_rid := coalesce(v_ref ->> 'id', v_ref ->> 'chave');
+
+  if tg_op = 'UPDATE' then
+    select array_agg(e.key) into v_changed
+    from jsonb_each(v_new) e
+    where e.value is distinct from (v_old -> e.key)
+      and e.key <> 'updated_at';
+    if v_changed is null then
+      return new; -- nada relevante mudou (ex.: só updated_at)
+    end if;
+    v_dados := jsonb_build_object(
+      'alterados', to_jsonb(v_changed),
+      'antes',  (select jsonb_object_agg(k, v_old -> k) from unnest(v_changed) k),
+      'depois', (select jsonb_object_agg(k, v_new -> k) from unnest(v_changed) k)
+    );
+  elsif tg_op = 'INSERT' then
+    v_dados := jsonb_build_object('depois', v_new);
+  else
+    v_dados := jsonb_build_object('antes', v_old);
+  end if;
+
+  if v_actor is not null then
+    select nome into v_nome from public.perfis where id = v_actor;
+  end if;
+
+  insert into public.audit_log (actor_id, actor_nome, acao, entidade, registro_id, resumo, dados)
+  values (
+    v_actor, v_nome, tg_op, tg_table_name, v_rid,
+    coalesce(v_ref ->> 'numero', v_ref ->> 'nome', v_ref ->> 'chave', v_rid),
+    v_dados
+  );
+
+  return coalesce(new, old);
+end;
+$audit$;
+
+-- anexa o gatilho às tabelas operacionais e de cadastro
+do $audit_attach$
+declare t text;
+begin
+  for t in select unnest(array[
+    'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos','nf_grupos','nf_recibos',
+    'empenhos','empenhos_grupos','empenhos_itens','grupos','itens','itens_precos',
+    'atestes','atestes_nfs','solicitacoes_nf','solicitacoes_nf_recibos',
+    'perfis','perfis_campi','campi','fornecedores','configuracoes'
+  ]) loop
+    execute format('drop trigger if exists trg_audit on public.%s', t);
+    execute format(
+      'create trigger trg_audit after insert or update or delete on public.%s
+       for each row execute function public.fn_audit()', t);
+  end loop;
+end $audit_attach$;
