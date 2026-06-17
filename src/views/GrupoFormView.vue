@@ -34,7 +34,32 @@ const status = ref<Grupo["status"]>("vigente");
 const itens = ref<LinhaItem[]>([]);
 const buscaItem = ref("");
 
-const novoItem = ref({ codigo_catmat: "", descricao: "", unidade: "kg", preco_unitario: null as number | null });
+const novoItem = ref({ codigo_catmat: "", descricao: "", unidade: "kg", preco_unitario: null as number | null, quantidade_ata: null as number | null });
+
+// total empenhado por item (qtd), para calcular o saldo do contrato
+const empenhadoPorItem = ref<Map<number, number>>(new Map());
+const empenhadoDoItem = (id: number) => empenhadoPorItem.value.get(id) ?? 0;
+const saldoContrato = (l: LinhaItem) => Number(l.quantidade_ata ?? 0) - empenhadoDoItem(l.id);
+
+function fmtQtd(n: number): string {
+  return Number(n).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+}
+
+async function loadEmpenhado() {
+  empenhadoPorItem.value = new Map();
+  const ids = itens.value.map((i) => i.id);
+  if (!ids.length) return;
+  const { data } = await supabase
+    .from("empenhos_itens")
+    .select("item_id, quantidade, empenhos (status)")
+    .in("item_id", ids);
+  type Row = { item_id: number; quantidade: number; empenhos: { status: string } | null };
+  for (const r of ((data as unknown as Row[] | null) ?? [])) {
+    const st = r.empenhos?.status;
+    if (st === "cancelado" || st === "anulado") continue;
+    empenhadoPorItem.value.set(r.item_id, (empenhadoPorItem.value.get(r.item_id) ?? 0) + Number(r.quantidade));
+  }
+}
 
 const loading = ref(false);
 const saving = ref(false);
@@ -165,7 +190,9 @@ async function loadGrupo() {
   itens.value = ((i.data as LinhaItem[] | null) ?? []).map((x) => ({
     ...x,
     preco_unitario: Number(x.preco_unitario),
+    quantidade_ata: Number(x.quantidade_ata),
   }));
+  await loadEmpenhado();
   loading.value = false;
 }
 
@@ -228,6 +255,7 @@ async function addItem() {
     descricao: n.descricao.trim(),
     unidade: n.unidade.trim(),
     preco_unitario: n.preco_unitario,
+    quantidade_ata: n.quantidade_ata ?? 0,
     status: "ativo",
   });
   addingItem.value = false;
@@ -237,7 +265,7 @@ async function addItem() {
       : err.message;
     return;
   }
-  novoItem.value = { codigo_catmat: "", descricao: "", unidade: n.unidade, preco_unitario: null };
+  novoItem.value = { codigo_catmat: "", descricao: "", unidade: n.unidade, preco_unitario: null, quantidade_ata: null };
   await loadGrupo();
 }
 
@@ -251,6 +279,7 @@ async function salvarItem(l: LinhaItem) {
       descricao: l.descricao.trim(),
       unidade: l.unidade.trim(),
       preco_unitario: l.preco_unitario,
+      quantidade_ata: l.quantidade_ata ?? 0,
       status: l.status,
     })
     .eq("id", l.id);
@@ -379,7 +408,7 @@ onMounted(async () => {
             <label class="label">CatMat</label>
             <input v-model="novoItem.codigo_catmat" type="text" class="input" placeholder="000000" />
           </div>
-          <div class="sm:col-span-5">
+          <div class="sm:col-span-3">
             <label class="label">Nome (descrição)</label>
             <input v-model="novoItem.descricao" type="text" class="input" />
           </div>
@@ -392,6 +421,10 @@ onMounted(async () => {
             <input v-model.number="novoItem.preco_unitario" type="number" step="0.0001" min="0" class="input" />
           </div>
           <div class="sm:col-span-2">
+            <label class="label">Qtd contratada</label>
+            <input v-model.number="novoItem.quantidade_ata" type="number" step="0.001" min="0" class="input" />
+          </div>
+          <div class="sm:col-span-2">
             <button class="btn-primary w-full" :disabled="addingItem" @click="addItem">
               {{ addingItem ? "Adicionando…" : "+ Adicionar" }}
             </button>
@@ -401,14 +434,16 @@ onMounted(async () => {
         <div v-if="!itensFiltrados.length" class="p-6 text-center text-slate-500 dark:text-slate-400">
           {{ itens.length ? "Nenhum item corresponde à busca." : "Nenhum item cadastrado ainda." }}
         </div>
-        <div v-else class="max-h-[30rem] overflow-y-auto">
-          <table class="w-full text-sm min-w-[52rem]">
+        <div v-else class="max-h-[30rem] overflow-auto">
+          <table class="w-full text-sm min-w-[64rem]">
             <thead class="bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs sticky top-0">
               <tr>
                 <th class="px-4 py-2 text-left w-28">CatMat</th>
                 <th class="px-4 py-2 text-left">Nome</th>
                 <th class="px-4 py-2 text-left w-20">Un.</th>
                 <th class="px-4 py-2 text-right w-32">Valor unit.</th>
+                <th class="px-4 py-2 text-right w-32">Qtd contratada</th>
+                <th class="px-4 py-2 text-right w-36">Saldo (contrato)</th>
                 <th class="px-4 py-2 text-left w-28">Status</th>
                 <th class="px-4 py-2 w-28"></th>
               </tr>
@@ -426,6 +461,12 @@ onMounted(async () => {
                 </td>
                 <td class="px-4 py-2">
                   <input v-model.number="l.preco_unitario" type="number" step="0.0001" min="0" class="input text-right" />
+                </td>
+                <td class="px-4 py-2">
+                  <input v-model.number="l.quantidade_ata" type="number" step="0.001" min="0" class="input text-right" />
+                </td>
+                <td class="px-4 py-2 text-right tabular-nums" :title="`Empenhado: ${fmtQtd(empenhadoDoItem(l.id))} ${l.unidade}`">
+                  <span :class="saldoContrato(l) < 0 ? 'text-red-600 dark:text-red-400 font-medium' : ''">{{ fmtQtd(saldoContrato(l)) }} {{ l.unidade }}</span>
                 </td>
                 <td class="px-4 py-2">
                   <select v-model="l.status" class="input">
@@ -446,6 +487,8 @@ onMounted(async () => {
         <p class="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700">
           O CatMat identifica o item no grupo (não pode repetir). Para tirar um item de
           circulação, use o status <em>Inativo</em> — os lançamentos antigos são preservados.
+          A <strong>Qtd contratada</strong> é a quantidade total da ata; o <strong>Saldo (contrato)</strong>
+          desconta o que já foi empenhado (NEs canceladas/anuladas não contam — passe o mouse para ver o empenhado).
         </p>
       </div>
 
