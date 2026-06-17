@@ -109,6 +109,12 @@ const routes: RouteRecordRaw[] = [
     meta: { roles: ["sane"] },
   },
   {
+    path: "/ajuda",
+    name: "ajuda",
+    component: () => import("@/views/AjudaView.vue"),
+    meta: { public: true },
+  },
+  {
     path: "/admin",
     name: "admin",
     component: () => import("@/views/AdminView.vue"),

@@ -69,6 +69,7 @@ const navItems = computed(() => {
     items.push({ to: "/solicitar-nf", label: "Solicitar NF" });
     items.push({ to: "/ateste", label: "Ateste" });
   }
+  items.push({ to: "/ajuda", label: "Ajuda" });
   return items;
 });
 </script>
