@@ -171,6 +171,25 @@ const totalGeral = computed(() =>
   nfsSelecionadas.value.reduce((a, n) => a + Number(n.valor_total ?? 0), 0)
 );
 
+/** Empenhos usados para pagar cada NF (relação NE + valor), para o ateste. */
+async function carregarNfEmpenhos(
+  nfIds: number[]
+): Promise<Map<number, { numero: string; valor: number }[]>> {
+  const mapa = new Map<number, { numero: string; valor: number }[]>();
+  if (!nfIds.length) return mapa;
+  const { data } = await supabase
+    .from("nf_empenhos")
+    .select("nf_id, valor_debitado, empenhos (numero)")
+    .in("nf_id", nfIds);
+  type Row = { nf_id: number; valor_debitado: number; empenhos: { numero: string } | null };
+  for (const r of ((data as unknown as Row[] | null) ?? [])) {
+    const arr = mapa.get(r.nf_id) ?? [];
+    arr.push({ numero: r.empenhos?.numero ?? "—", valor: Number(r.valor_debitado) });
+    mapa.set(r.nf_id, arr);
+  }
+  return mapa;
+}
+
 // ---------- emissão ----------
 async function gerarAteste() {
   error.value = null;
@@ -204,12 +223,14 @@ async function gerarAteste() {
     const { error: e2 } = await supabase.from("atestes_nfs").insert(vinculos);
     if (e2) throw e2;
 
+    const nfEmpenhosPorNf = await carregarNfEmpenhos(nfsSelecionadas.value.map((n) => n.id));
     const { doc, numeroDoc, filename } = montarPdfAteste({
       atesteId,
       dataEmissao: new Date(),
       fornecedor: fornecedorAtual.value,
       grupoPorId: grupoPorId.value,
       nfs: nfsSelecionadas.value,
+      nfEmpenhosPorNf,
       processoSuap: processoSuap.value.trim() || null,
       localEmissao: localEmissao.value.trim() || "Rio de Janeiro",
       observacoes: observacoes.value.trim() || null,
@@ -259,12 +280,14 @@ async function baixarDoHistorico(a: AtesteRow) {
     if (!nfsDoAteste.length) throw new Error("Ateste sem NFs vinculadas.");
 
     const mapa = new Map(((gs as Grupo[] | null) ?? []).map((g) => [g.id, g]));
+    const nfEmpenhosPorNf = await carregarNfEmpenhos(nfsDoAteste.map((n) => n.id));
     const { doc, filename } = montarPdfAteste({
       atesteId: a.id,
       dataEmissao: new Date(a.data_emissao + "T12:00:00"),
       fornecedor: a.fornecedores,
       grupoPorId: mapa,
       nfs: nfsDoAteste,
+      nfEmpenhosPorNf,
       processoSuap: a.processo_suap,
       localEmissao: a.local_emissao,
       observacoes: a.observacoes,

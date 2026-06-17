@@ -146,6 +146,7 @@ export interface NotaFiscal {
   processo_pagamento: string | null;
   data_abertura_processo: string | null;
   link_pdf: string | null;
+  link_instrumento_cobranca: string | null;
   caminho_onedrive: string | null;
   ocorrencias: string | null;
   avaliacao_pontualidade: string | null;
@@ -238,4 +239,66 @@ export interface VwGrupoResumo {
   utilizado: number;
   saldo: number;
   qtd_nfs: number;
+}
+
+/** Grupo vinculado a uma NF (N:N — NF com dois ou mais grupos). */
+export interface NFGrupo {
+  id: number;
+  nf_id: number;
+  grupo_id: number;
+}
+
+/** Recibo vinculado a uma NF (N:N — vínculo livre dentro do grupo). */
+export interface NFRecibo {
+  id: number;
+  nf_id: number;
+  recibo_id: number;
+}
+
+export type StatusSolicitacaoNF = "aberta" | "enviada" | "atendida" | "cancelada";
+
+/** Solicitação de emissão de NF (entrega por empresa → PDF de quantidades). */
+export interface SolicitacaoNF {
+  id: number;
+  fornecedor_id: number;
+  grupo_id: number | null;
+  data_solicitacao: string;
+  periodo_inicio: string | null;
+  periodo_fim: string | null;
+  observacoes: string | null;
+  status: StatusSolicitacaoNF;
+  valor_estimado: number;
+  qtd_recibos: number;
+  gerado_por: string | null;
+  gerado_por_nome: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SolicitacaoNFRecibo {
+  id: number;
+  solicitacao_id: number;
+  recibo_id: number;
+}
+
+/** View vw_empenho_item_saldos — saldo por item de cada empenho (qtd e R$). */
+export interface VwEmpenhoItemSaldo {
+  empenho_id: number;
+  empenho_numero: string;
+  data_emissao: string;
+  fornecedor_id: number | null;
+  empenho_status: StatusEmpenho;
+  item_id: number;
+  grupo_id: number;
+  descricao: string;
+  codigo_catmat: string | null;
+  unidade: string;
+  qtd_empenhada: number;
+  valor_unitario_ne: number;
+  preco_vigente: number;
+  consumido_qtd: number;
+  consumido_valor: number;
+  valor_inicial: number;
+  saldo_valor: number;
+  saldo_qtd: number | null;
 }

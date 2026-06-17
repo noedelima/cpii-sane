@@ -3,9 +3,11 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
-import { fmtMoney } from "@/lib/format";
+import { fmtDate, fmtMoney } from "@/lib/format";
 import PdfUpload from "@/components/PdfUpload.vue";
-import type { Empenho, Fornecedor, Grupo, Item } from "@/types/database";
+import { carregarLogo } from "@/lib/pdf-ateste";
+import { montarPdfEmpenhoSaldos } from "@/lib/pdf-empenho-saldos";
+import type { Empenho, Fornecedor, Grupo, Item, VwEmpenhoItemSaldo } from "@/types/database";
 
 interface Alocacao {
   id?: number;
@@ -23,6 +25,14 @@ interface LinhaEmpItem {
   _descricao: string;
   _unidade: string;
   _catmat: string | null;
+}
+
+interface NfPagaRow {
+  numero: string;
+  data_emissao: string | null;
+  valor_debitado: number;
+  processo_pagamento: string | null;
+  data_abertura_processo: string | null;
 }
 
 const route = useRoute();
@@ -66,6 +76,12 @@ const unificarDestinoId = ref<number | null>(null);
 const candidatosUnificacao = ref<{ id: number; numero: string }[]>([]);
 const unificando = ref(false);
 const excluindo = ref(false);
+
+// saldos / conferência (reqs 8 e 9)
+const nfsPagas = ref<NfPagaRow[]>([]);
+const mostrarNfsPagas = ref(false);
+const carregandoNfs = ref(false);
+const gerandoPdf = ref(false);
 
 const loading = ref(false);
 const saving = ref(false);
@@ -411,6 +427,84 @@ async function salvar() {
   }
 }
 
+async function carregarNfsPagas() {
+  if (!empenhoId.value) return;
+  mostrarNfsPagas.value = true;
+  carregandoNfs.value = true;
+  const { data } = await supabase
+    .from("nf_empenhos")
+    .select("valor_debitado, notas_fiscais (numero, data_emissao, processo_pagamento, data_abertura_processo)")
+    .eq("empenho_id", empenhoId.value)
+    .order("id");
+  type Row = {
+    valor_debitado: number;
+    notas_fiscais: {
+      numero: string; data_emissao: string | null;
+      processo_pagamento: string | null; data_abertura_processo: string | null;
+    } | null;
+  };
+  nfsPagas.value = ((data as unknown as Row[] | null) ?? []).map((r) => ({
+    numero: r.notas_fiscais?.numero ?? "—",
+    data_emissao: r.notas_fiscais?.data_emissao ?? null,
+    valor_debitado: Number(r.valor_debitado),
+    processo_pagamento: r.notas_fiscais?.processo_pagamento ?? null,
+    data_abertura_processo: r.notas_fiscais?.data_abertura_processo ?? null,
+  }));
+  carregandoNfs.value = false;
+}
+
+const totalNfsPagas = computed(() => nfsPagas.value.reduce((a, n) => a + n.valor_debitado, 0));
+
+async function gerarPdfSaldos() {
+  if (!empenhoId.value) return;
+  error.value = null;
+  gerandoPdf.value = true;
+  try {
+    const { data, error: err } = await supabase
+      .from("vw_empenho_item_saldos")
+      .select("*")
+      .eq("empenho_id", empenhoId.value)
+      .order("descricao");
+    if (err) throw err;
+    const rows = (data as VwEmpenhoItemSaldo[] | null) ?? [];
+    const forn = fornecedores.value.find((f) => f.id === fornecedorId.value);
+    const { doc, filename } = montarPdfEmpenhoSaldos({
+      fornecedor: {
+        codigo: forn?.codigo ?? "—",
+        razao_social: forn?.razao_social ?? "—",
+        cnpj: forn?.cnpj ?? null,
+      },
+      blocos: [
+        {
+          numero: numero.value,
+          data_emissao: dataEmissao.value,
+          processo_suap: processoSuap.value.trim() || null,
+          valor_global: valorLiquido.value,
+          grupos: gruposAlocados.value.map((g) => g.nome),
+          itens: rows.map((r) => ({
+            codigo_catmat: r.codigo_catmat,
+            descricao: r.descricao,
+            unidade: r.unidade,
+            qtd_empenhada: Number(r.qtd_empenhada),
+            valor_unitario_ne: Number(r.valor_unitario_ne),
+            consumido_qtd: Number(r.consumido_qtd),
+            saldo_qtd: r.saldo_qtd == null ? null : Number(r.saldo_qtd),
+            valor_inicial: Number(r.valor_inicial),
+            saldo_valor: Number(r.saldo_valor),
+          })),
+        },
+      ],
+      emitidoPor: auth.perfil?.nome ?? "",
+      logoDataUrl: await carregarLogo(),
+    });
+    doc.save(filename);
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Falha ao gerar o PDF de saldos.";
+  } finally {
+    gerandoPdf.value = false;
+  }
+}
+
 onMounted(async () => {
   await loadRefs();
   await loadEmpenho();
@@ -624,6 +718,61 @@ onMounted(async () => {
       <div class="card p-5">
         <label class="label">Observações</label>
         <textarea v-model="observacoes" rows="3" class="input"></textarea>
+      </div>
+
+      <div v-if="editMode" class="card p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="font-medium text-slate-700 dark:text-slate-200">Saldos e conferência</h2>
+          <div class="flex gap-2">
+            <button type="button" class="btn-secondary" :disabled="carregandoNfs" @click="carregarNfsPagas">
+              {{ mostrarNfsPagas ? "Atualizar NFs pagas" : "NFs pagas com esta NE" }}
+            </button>
+            <button type="button" class="btn-primary" :disabled="gerandoPdf" @click="gerarPdfSaldos">
+              {{ gerandoPdf ? "Gerando…" : "PDF de saldos" }}
+            </button>
+          </div>
+        </div>
+        <p class="text-xs text-slate-500 dark:text-slate-400">
+          O saldo atual de cada item aparece na tabela “Itens empenhados” acima. O PDF de saldos
+          (empresa, CNPJ, grupos, itens, saldo inicial e atual, valor global e saldo em R$) pode ser
+          enviado à empresa para conferência — gerado a partir dos dados já salvos.
+        </p>
+
+        <div v-if="mostrarNfsPagas">
+          <div v-if="carregandoNfs" class="text-sm text-slate-500 dark:text-slate-400">Carregando…</div>
+          <div v-else-if="nfsPagas.length" class="overflow-x-auto">
+            <table class="w-full text-sm min-w-[40rem]">
+              <thead class="text-xs text-slate-500 dark:text-slate-400 uppercase">
+                <tr>
+                  <th class="text-left py-1">NF</th>
+                  <th class="text-left py-1">Emissão</th>
+                  <th class="text-right py-1">Valor descontado</th>
+                  <th class="text-left py-1">Processo de pagamento</th>
+                  <th class="text-left py-1">Abertura</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                <tr v-for="(n, i) in nfsPagas" :key="i">
+                  <td class="py-2 font-medium">{{ n.numero }}</td>
+                  <td class="py-2 whitespace-nowrap">{{ fmtDate(n.data_emissao) }}</td>
+                  <td class="py-2 text-right tabular-nums">{{ fmtMoney(n.valor_debitado) }}</td>
+                  <td class="py-2 text-slate-600 dark:text-slate-300">{{ n.processo_pagamento ?? "—" }}</td>
+                  <td class="py-2 whitespace-nowrap">{{ fmtDate(n.data_abertura_processo) }}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr class="border-t border-slate-300 dark:border-slate-600 font-medium">
+                  <td class="py-2" colspan="2">Total descontado ({{ nfsPagas.length }} NF(s))</td>
+                  <td class="py-2 text-right tabular-nums">{{ fmtMoney(totalNfsPagas) }}</td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p v-else class="text-sm text-slate-500 dark:text-slate-400">
+            Nenhuma NF debitou esta NE ainda.
+          </p>
+        </div>
       </div>
 
       <div v-if="editMode" class="card p-5 space-y-4 border-red-200 dark:border-red-900">

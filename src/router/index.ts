@@ -75,6 +75,12 @@ const routes: RouteRecordRaw[] = [
     meta: { roles: ["sane"] },
   },
   {
+    path: "/solicitar-nf",
+    name: "solicitar-nf",
+    component: () => import("@/views/SolicitarNFView.vue"),
+    meta: { roles: ["sane"] },
+  },
+  {
     path: "/grupos",
     name: "grupos",
     component: () => import("@/views/GruposView.vue"),

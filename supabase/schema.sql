@@ -680,7 +680,7 @@ begin
         join public.itens i
           on i.id = v_item.item_id
         join public.empenhos_grupos eg
-          on eg.empenho_id = e.id and eg.grupo_id = v_nf.grupo_id
+          on eg.empenho_id = e.id and eg.grupo_id = i.grupo_id
         where e.status = 'ativo'
         order by e.data_emissao asc, e.id asc
         for update of e
@@ -748,7 +748,11 @@ begin
                         from public.nf_empenhos x where x.empenho_id = e.id), 0)) as saldo
     from public.empenhos e
     join public.empenhos_grupos eg
-      on eg.empenho_id = e.id and eg.grupo_id = v_nf.grupo_id
+      on eg.empenho_id = e.id
+     and eg.grupo_id in (
+       select grupo_id from public.nf_grupos where nf_id = p_nf_id
+       union select v_nf.grupo_id
+     )
     where e.status = 'ativo'
     order by e.data_emissao asc, e.id asc
     for update of e
@@ -1039,3 +1043,157 @@ begin
   delete from public.empenhos where id = p_origem_id;
 end;
 $mg$;
+
+-- =========================================================
+-- 15) Melhorias 06/2026 — solicitação de NF, NF multi-grupo/recibos,
+--     instrumento de cobrança e saldos por item do empenho
+-- =========================================================
+
+-- 15.1) NF com dois ou mais grupos (N:N). notas_fiscais.grupo_id continua
+-- sendo o grupo "principal" (compatibilidade e cabeçalhos); nf_grupos guarda
+-- o conjunto completo. A distribuição pela fila resolve o grupo PELO ITEM
+-- (itens.grupo_id), então itens de grupos diferentes vão aos empenhos certos.
+create table if not exists public.nf_grupos (
+  id        bigserial primary key,
+  nf_id     bigint not null references public.notas_fiscais(id) on delete cascade,
+  grupo_id  bigint not null references public.grupos(id) on delete restrict,
+  unique (nf_id, grupo_id)
+);
+create index if not exists idx_nf_grupos_nf on public.nf_grupos(nf_id);
+-- backfill: toda NF existente passa a ter ao menos o seu grupo principal
+insert into public.nf_grupos (nf_id, grupo_id)
+select n.id, n.grupo_id from public.notas_fiscais n
+on conflict (nf_id, grupo_id) do nothing;
+
+-- 15.2) Recibos x NF (N:N, vínculo livre dentro do grupo). recibos.nf_id é
+-- mantido por compatibilidade/legado; nf_recibos passa a ser a fonte do
+-- vínculo (um recibo pode ser referenciado por mais de uma NF do grupo).
+create table if not exists public.nf_recibos (
+  id         bigserial primary key,
+  nf_id      bigint not null references public.notas_fiscais(id) on delete cascade,
+  recibo_id  bigint not null references public.recibos(id) on delete cascade,
+  unique (nf_id, recibo_id)
+);
+create index if not exists idx_nf_recibos_nf on public.nf_recibos(nf_id);
+create index if not exists idx_nf_recibos_recibo on public.nf_recibos(recibo_id);
+-- backfill a partir do vínculo único atual (recibos.nf_id)
+insert into public.nf_recibos (nf_id, recibo_id)
+select r.nf_id, r.id from public.recibos r where r.nf_id is not null
+on conflict (nf_id, recibo_id) do nothing;
+
+-- 15.3) PDF do Instrumento de Cobrança (gerado no Contratos.gov) na NF.
+alter table public.notas_fiscais add column if not exists link_instrumento_cobranca text;
+
+-- 15.4) Solicitações de emissão de NF. A SANE seleciona recibos de uma entrega
+-- por empresa, registra a solicitação e gera um PDF com as quantidades finais
+-- para a empresa conferir e emitir a NF.
+create table if not exists public.solicitacoes_nf (
+  id               bigserial primary key,
+  fornecedor_id    bigint not null references public.fornecedores(id) on delete restrict,
+  grupo_id         bigint references public.grupos(id) on delete set null,
+  data_solicitacao date not null default current_date,
+  periodo_inicio   date,
+  periodo_fim      date,
+  observacoes      text,
+  status           text not null default 'aberta'
+                    check (status in ('aberta','enviada','atendida','cancelada')),
+  valor_estimado   numeric(14,2) not null default 0,
+  qtd_recibos      int not null default 0,
+  gerado_por       uuid references auth.users(id) on delete set null,
+  gerado_por_nome  text,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+create index if not exists idx_solic_nf_fornecedor on public.solicitacoes_nf(fornecedor_id);
+
+create table if not exists public.solicitacoes_nf_recibos (
+  id             bigserial primary key,
+  solicitacao_id bigint not null references public.solicitacoes_nf(id) on delete cascade,
+  recibo_id      bigint not null references public.recibos(id) on delete restrict,
+  unique (solicitacao_id, recibo_id)
+);
+create index if not exists idx_solic_nf_recibos on public.solicitacoes_nf_recibos(solicitacao_id);
+
+-- updated_at em solicitacoes_nf
+drop trigger if exists trg_solicitacoes_nf_updated on public.solicitacoes_nf;
+create trigger trg_solicitacoes_nf_updated before update on public.solicitacoes_nf
+  for each row execute function public.set_updated_at();
+
+-- 15.5) RLS das novas tabelas: leitura para autenticados; escrita SANE/admin.
+alter table public.nf_grupos               enable row level security;
+alter table public.nf_recibos              enable row level security;
+alter table public.solicitacoes_nf         enable row level security;
+alter table public.solicitacoes_nf_recibos enable row level security;
+
+do $pol15$
+declare t text;
+begin
+  for t in select unnest(array[
+    'nf_grupos','nf_recibos','solicitacoes_nf','solicitacoes_nf_recibos'
+  ]) loop
+    execute format('drop policy if exists p_%s_select on public.%s', t, t);
+    execute format('drop policy if exists p_%s_insert on public.%s', t, t);
+    execute format('drop policy if exists p_%s_update on public.%s', t, t);
+    execute format('drop policy if exists p_%s_delete on public.%s', t, t);
+    execute format(
+      'create policy p_%s_select on public.%s for select to authenticated using (true)', t, t);
+    execute format(
+      'create policy p_%s_insert on public.%s for insert to authenticated
+       with check (public.current_papel() in (''sane'',''admin''))', t, t);
+    execute format(
+      'create policy p_%s_update on public.%s for update to authenticated
+       using (public.current_papel() in (''sane'',''admin''))
+       with check (public.current_papel() in (''sane'',''admin''))', t, t);
+    execute format(
+      'create policy p_%s_delete on public.%s for delete to authenticated
+       using (public.current_papel() in (''sane'',''admin''))', t, t);
+  end loop;
+end $pol15$;
+
+-- 15.6) CNPJ do fornecedor editável a partir da tela de Grupo: a SANE passa a
+-- poder atualizar fornecedores (antes só admin). Inserção segue restrita a admin.
+drop policy if exists p_fornecedores_update on public.fornecedores;
+create policy p_fornecedores_update on public.fornecedores for update to authenticated
+  using (public.current_papel() in ('sane','admin'))
+  with check (public.current_papel() in ('sane','admin'));
+
+-- 15.7) Saldo por ITEM de cada empenho (qtd e R$), base dos botões/relatórios
+-- de saldo (NE individual, por grupo e PDF de saldos). Mesma regra da fila:
+-- saldo_valor = qtd_empenhada x preço_da_NE - consumido; saldo_qtd convertido
+-- ao preço vigente do catálogo (após apostilamento, ajusta-se sozinho).
+create or replace view public.vw_empenho_item_saldos
+with (security_invoker = on) as
+select
+  e.id                                          as empenho_id,
+  e.numero                                      as empenho_numero,
+  e.data_emissao,
+  e.fornecedor_id,
+  e.status                                      as empenho_status,
+  ei.item_id,
+  i.grupo_id,
+  i.descricao,
+  i.codigo_catmat,
+  i.unidade,
+  ei.quantidade                                 as qtd_empenhada,
+  coalesce(ei.valor_unitario, i.preco_unitario) as valor_unitario_ne,
+  i.preco_unitario                              as preco_vigente,
+  coalesce(c.consumido_qtd, 0)                  as consumido_qtd,
+  coalesce(c.consumido_valor, 0)::numeric(14,2) as consumido_valor,
+  (ei.quantidade * coalesce(ei.valor_unitario, i.preco_unitario))::numeric(14,2) as valor_inicial,
+  (ei.quantidade * coalesce(ei.valor_unitario, i.preco_unitario)
+     - coalesce(c.consumido_valor, 0))::numeric(14,2) as saldo_valor,
+  case when i.preco_unitario > 0
+    then round((ei.quantidade * coalesce(ei.valor_unitario, i.preco_unitario)
+           - coalesce(c.consumido_valor, 0)) / i.preco_unitario, 3)
+    else null end                               as saldo_qtd
+from public.empenhos e
+join public.empenhos_itens ei on ei.empenho_id = e.id
+join public.itens i on i.id = ei.item_id
+left join (
+  select empenho_id, item_id,
+         sum(quantidade)                              as consumido_qtd,
+         sum(quantidade * coalesce(valor_unitario, 0)) as consumido_valor
+  from public.nf_itens
+  where empenho_id is not null
+  group by empenho_id, item_id
+) c on c.empenho_id = e.id and c.item_id = ei.item_id;

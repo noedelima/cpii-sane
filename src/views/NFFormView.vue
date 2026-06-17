@@ -1,11 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import PdfUpload from "@/components/PdfUpload.vue";
-import type { Grupo, Item, NFEmpenho, NotaFiscal, Recibo, VwEmpenhoSaldo } from "@/types/database";
+import { carregarLogo } from "@/lib/pdf-ateste";
+import { montarPdfNFLancamento } from "@/lib/pdf-nf-lancamento";
+import type {
+  Fornecedor,
+  Grupo,
+  Item,
+  ItemPreco,
+  NFEmpenho,
+  NotaFiscal,
+  Recibo,
+  VwEmpenhoSaldo,
+} from "@/types/database";
 
 type RateioRow = NFEmpenho & { empenhos?: { numero: string } | null };
 
@@ -17,6 +28,7 @@ interface LinhaNFItem {
   _descricao: string;
   _unidade: string;
   _catmat: string | null;
+  _grupoId: number;
   _empenhoNumero?: string | null;
 }
 
@@ -30,10 +42,12 @@ const nfId = computed(() => (route.params.id ? Number(route.params.id) : null));
 const editMode = computed(() => nfId.value != null);
 
 const grupos = ref<Grupo[]>([]);
+const fornecedores = ref<Fornecedor[]>([]);
 const empenhosDoGrupo = ref<VwEmpenhoSaldo[]>([]);
 
 const numero = ref("");
-const grupoId = ref<number | null>(null);
+// multi-grupo: gruposSel[0] é o grupo "principal" (cabeçalho/fornecedor)
+const gruposSel = ref<number[]>([]);
 const dataEmissao = ref<string>("");
 const dataEntrega = ref(new Date().toISOString().slice(0, 10));
 const valorTotal = ref<number | null>(null);
@@ -43,29 +57,42 @@ const status = ref<NotaFiscal["status"]>("pendente");
 const ocorrencias = ref("");
 const observacoes = ref("");
 const linkPdf = ref<string | null>(null);
+const linkCobranca = ref<string | null>(null);
 
 const rateios = ref<RateioRow[]>([]);
 const rateioEmpenhoId = ref<number | null>(null);
 const rateioValor = ref<number | null>(null);
 
-// itens da NF (seleção a partir do catálogo do grupo)
+// itens da NF (seleção a partir do catálogo dos grupos selecionados)
 const nfItens = ref<LinhaNFItem[]>([]);
-const itensDoGrupoNF = ref<Item[]>([]);
+const itensDosGrupos = ref<Item[]>([]);
+const precosPorItem = ref<Map<number, ItemPreco[]>>(new Map());
 const novoItemId = ref<number | null>(null);
 const novaQtd = ref<number | null>(null);
 
-// recibos vinculados a esta NF
+// recibos vinculados (nf_recibos) e busca de candidatos do(s) grupo(s)
 const recibosVinculados = ref<ReciboRow[]>([]);
+const recibosCandidatos = ref<ReciboRow[]>([]);
+const buscaRecibo = ref("");
+const buscandoRecibos = ref(false);
 const mesclando = ref(false);
+let buscaTimer: ReturnType<typeof setTimeout> | null = null;
 
 const loading = ref(false);
 const saving = ref(false);
 const distribuindo = ref(false);
 const excluindo = ref(false);
+const gerandoPdf = ref(false);
 const error = ref<string | null>(null);
 const aviso = ref<string | null>(null);
 
-const grupoAtual = computed(() => grupos.value.find((g) => g.id === grupoId.value));
+const gruposSelObjs = computed(() =>
+  gruposSel.value.map((id) => grupos.value.find((g) => g.id === id)).filter(Boolean) as Grupo[]
+);
+const grupoPrincipal = computed(() => gruposSelObjs.value[0] ?? null);
+const fornecedorAtual = computed(
+  () => fornecedores.value.find((f) => f.id === grupoPrincipal.value?.fornecedor_id) ?? null
+);
 const somaRateada = computed(() =>
   rateios.value.reduce((a, r) => a + Number(r.valor_debitado), 0)
 );
@@ -74,25 +101,65 @@ const somaItensNF = computed(() =>
   nfItens.value.reduce((a, l) => a + l.quantidade * (l.valor_unitario ?? 0), 0)
 );
 const itemSelecionadoNF = computed(
-  () => itensDoGrupoNF.value.find((i) => i.id === novoItemId.value) ?? null
+  () => itensDosGrupos.value.find((i) => i.id === novoItemId.value) ?? null
 );
+const recibosVinculadosIds = computed(() => new Set(recibosVinculados.value.map((r) => r.id)));
 
 async function loadRefs() {
-  const { data } = await supabase.from("grupos").select("*").order("numero_arabico");
-  grupos.value = (data as Grupo[] | null) ?? [];
+  const [g, f] = await Promise.all([
+    supabase.from("grupos").select("*").order("numero_arabico"),
+    supabase.from("fornecedores").select("*").order("codigo"),
+  ]);
+  grupos.value = (g.data as Grupo[] | null) ?? [];
+  fornecedores.value = (f.data as Fornecedor[] | null) ?? [];
 }
 
-async function loadItensDoGrupoNF() {
-  itensDoGrupoNF.value = [];
+function toggleGrupo(id: number) {
+  const i = gruposSel.value.indexOf(id);
+  if (i >= 0) gruposSel.value.splice(i, 1);
+  else gruposSel.value.push(id);
+}
+
+async function loadItensDosGrupos() {
+  itensDosGrupos.value = [];
   novoItemId.value = null;
-  if (!grupoId.value) return;
+  if (!gruposSel.value.length) return;
   const { data } = await supabase
     .from("itens")
     .select("*")
-    .eq("grupo_id", grupoId.value)
+    .in("grupo_id", gruposSel.value)
     .eq("status", "ativo")
     .order("descricao");
-  itensDoGrupoNF.value = (data as Item[] | null) ?? [];
+  itensDosGrupos.value = (data as Item[] | null) ?? [];
+  await loadPrecosHistorico();
+}
+
+/** Histórico de preços (apostilamentos) dos itens em jogo, para escolha por linha. */
+async function loadPrecosHistorico() {
+  const ids = Array.from(
+    new Set([...itensDosGrupos.value.map((i) => i.id), ...nfItens.value.map((l) => l.item_id)])
+  );
+  precosPorItem.value = new Map();
+  if (!ids.length) return;
+  const { data } = await supabase
+    .from("itens_precos")
+    .select("*")
+    .in("item_id", ids)
+    .order("vigencia_inicio", { ascending: true });
+  for (const p of (data as ItemPreco[] | null) ?? []) {
+    const arr = precosPorItem.value.get(p.item_id) ?? [];
+    arr.push(p);
+    precosPorItem.value.set(p.item_id, arr);
+  }
+}
+
+function aplicarPrecoHistorico(l: LinhaNFItem, v: string) {
+  if (v) l.valor_unitario = Number(v);
+}
+
+function labelGrupoDoItem(item: Item): string {
+  const g = grupos.value.find((x) => x.id === item.grupo_id);
+  return gruposSel.value.length > 1 && g ? `[${g.numero_romano}] ` : "";
 }
 
 function addNFItem() {
@@ -109,6 +176,7 @@ function addNFItem() {
     _descricao: item.descricao,
     _unidade: item.unidade,
     _catmat: item.codigo_catmat,
+    _grupoId: item.grupo_id,
   });
   novoItemId.value = null;
   novaQtd.value = null;
@@ -135,12 +203,12 @@ async function loadNFItens() {
   if (!nfId.value) return;
   const { data } = await supabase
     .from("nf_itens")
-    .select("*, itens (descricao, unidade, codigo_catmat), empenhos (numero)")
+    .select("*, itens (descricao, unidade, codigo_catmat, grupo_id), empenhos (numero)")
     .eq("nf_id", nfId.value)
     .order("id");
   type NIRow = {
     id: number; item_id: number; quantidade: number; valor_unitario: number | null;
-    itens: { descricao: string; unidade: string; codigo_catmat: string | null } | null;
+    itens: { descricao: string; unidade: string; codigo_catmat: string | null; grupo_id: number } | null;
     empenhos: { numero: string } | null;
   };
   nfItens.value = ((data as unknown as (NIRow[] | null)) ?? []).map((r) => ({
@@ -151,6 +219,7 @@ async function loadNFItens() {
     _descricao: r.itens?.descricao ?? "—",
     _unidade: r.itens?.unidade ?? "",
     _catmat: r.itens?.codigo_catmat ?? null,
+    _grupoId: r.itens?.grupo_id ?? 0,
     _empenhoNumero: r.empenhos?.numero ?? null,
   }));
 }
@@ -158,12 +227,69 @@ async function loadNFItens() {
 async function loadRecibosVinculados() {
   if (!nfId.value) return;
   const { data } = await supabase
+    .from("nf_recibos")
+    .select("recibo_id, recibos (*, campi (nome))")
+    .eq("nf_id", nfId.value);
+  type Row = { recibos: ReciboRow | null };
+  recibosVinculados.value = ((data as unknown as Row[] | null) ?? [])
+    .map((x) => x.recibos)
+    .filter(Boolean)
+    .sort((a, b) => (a!.data_recebimento < b!.data_recebimento ? -1 : 1)) as ReciboRow[];
+}
+
+async function buscarRecibosCandidatos() {
+  recibosCandidatos.value = [];
+  if (!nfId.value || !gruposSel.value.length) return;
+  buscandoRecibos.value = true;
+  let q = supabase
     .from("recibos")
     .select("*, campi (nome)")
-    .eq("nf_id", nfId.value)
-    .order("data_recebimento");
-  recibosVinculados.value = (data as ReciboRow[] | null) ?? [];
+    .in("grupo_id", gruposSel.value)
+    .order("data_recebimento", { ascending: false })
+    .limit(50);
+  if (buscaRecibo.value.trim()) q = q.ilike("numero", `%${buscaRecibo.value.trim()}%`);
+  const { data } = await q;
+  recibosCandidatos.value = ((data as ReciboRow[] | null) ?? []).filter(
+    (r) => !recibosVinculadosIds.value.has(r.id)
+  );
+  buscandoRecibos.value = false;
 }
+
+async function vincularRecibo(r: ReciboRow) {
+  if (!nfId.value) return;
+  error.value = null;
+  const { error: err } = await supabase
+    .from("nf_recibos")
+    .insert({ nf_id: nfId.value, recibo_id: r.id });
+  if (err) {
+    error.value = err.message.includes("duplicate")
+      ? "Este recibo já está vinculado a esta NF."
+      : err.message;
+    return;
+  }
+  await loadRecibosVinculados();
+  await buscarRecibosCandidatos();
+}
+
+async function desvincularRecibo(r: ReciboRow) {
+  if (!nfId.value) return;
+  const { error: err } = await supabase
+    .from("nf_recibos")
+    .delete()
+    .eq("nf_id", nfId.value)
+    .eq("recibo_id", r.id);
+  if (err) {
+    error.value = err.message;
+    return;
+  }
+  await loadRecibosVinculados();
+  await buscarRecibosCandidatos();
+}
+
+watch(buscaRecibo, () => {
+  if (buscaTimer) clearTimeout(buscaTimer);
+  buscaTimer = setTimeout(buscarRecibosCandidatos, 350);
+});
 
 async function baixarRecibosUnificados() {
   const comPdf = recibosVinculados.value.filter((r) => r.link_pdf);
@@ -190,9 +316,9 @@ async function baixarRecibosUnificados() {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         const bytes = await resp.arrayBuffer();
-        const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
-        const pages = await final.copyPages(doc, doc.getPageIndices());
-        for (const p of pages) final.addPage(p);
+        const docPdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        const pages = await final.copyPages(docPdf, docPdf.getPageIndices());
+        for (const pg of pages) final.addPage(pg);
       } catch {
         pulados.push(String(r.numero));
       }
@@ -220,13 +346,15 @@ async function baixarRecibosUnificados() {
 async function loadEmpenhosDoGrupo() {
   empenhosDoGrupo.value = [];
   rateioEmpenhoId.value = null;
-  if (!grupoId.value) return;
-  // empenhos alocados ao grupo, com saldo calculado pela view
+  if (!gruposSel.value.length) return;
+  // empenhos alocados a QUALQUER grupo selecionado, com saldo calculado pela view
   const { data: ids } = await supabase
     .from("empenhos_grupos")
     .select("empenho_id")
-    .eq("grupo_id", grupoId.value);
-  const lista = ((ids as { empenho_id: number }[] | null) ?? []).map((x) => x.empenho_id);
+    .in("grupo_id", gruposSel.value);
+  const lista = Array.from(
+    new Set(((ids as { empenho_id: number }[] | null) ?? []).map((x) => x.empenho_id))
+  );
   if (!lista.length) return;
   const { data } = await supabase
     .from("vw_empenho_saldos")
@@ -251,7 +379,10 @@ async function loadRateios() {
 }
 
 async function loadNF() {
-  if (!nfId.value) return;
+  if (!nfId.value) {
+    loading.value = false;
+    return;
+  }
   loading.value = true;
   const { data, error: err } = await supabase
     .from("notas_fiscais")
@@ -265,7 +396,6 @@ async function loadNF() {
   }
   const nf = data as NotaFiscal;
   numero.value = nf.numero;
-  grupoId.value = nf.grupo_id;
   dataEmissao.value = nf.data_emissao ?? "";
   dataEntrega.value = nf.data_entrega;
   valorTotal.value = nf.valor_total == null ? null : Number(nf.valor_total);
@@ -275,28 +405,41 @@ async function loadNF() {
   ocorrencias.value = nf.ocorrencias ?? "";
   observacoes.value = nf.observacoes ?? "";
   linkPdf.value = nf.link_pdf;
+  linkCobranca.value = nf.link_instrumento_cobranca;
+
+  // grupos da NF (nf_grupos; fallback ao grupo principal)
+  const { data: gs } = await supabase
+    .from("nf_grupos")
+    .select("grupo_id")
+    .eq("nf_id", nfId.value);
+  const ids = ((gs as { grupo_id: number }[] | null) ?? []).map((x) => x.grupo_id);
+  gruposSel.value = ids.length ? ids : [nf.grupo_id];
+  // mantém o grupo principal como primeiro
+  gruposSel.value.sort((a, b) => (a === nf.grupo_id ? -1 : b === nf.grupo_id ? 1 : 0));
+
   await Promise.all([
     loadEmpenhosDoGrupo(),
-    loadItensDoGrupoNF(),
+    loadItensDosGrupos(),
     loadRateios(),
     loadNFItens(),
     loadRecibosVinculados(),
   ]);
+  await Promise.all([loadPrecosHistorico(), buscarRecibosCandidatos()]);
   loading.value = false;
 }
 
 async function salvar(voltar = true) {
   error.value = null;
-  if (!numero.value.trim() || !grupoId.value || !dataEntrega.value) {
-    error.value = "Preencha número, grupo e data de entrega.";
+  if (!numero.value.trim() || !gruposSel.value.length || !dataEntrega.value) {
+    error.value = "Preencha número, ao menos um grupo e a data de entrega.";
     return false;
   }
   saving.value = true;
   try {
     const payload = {
       numero: numero.value.trim(),
-      grupo_id: grupoId.value,
-      fornecedor_id: grupoAtual.value?.fornecedor_id ?? null,
+      grupo_id: gruposSel.value[0], // grupo principal
+      fornecedor_id: grupoPrincipal.value?.fornecedor_id ?? null,
       data_emissao: dataEmissao.value || null,
       data_entrega: dataEntrega.value,
       valor_total: valorTotal.value,
@@ -306,18 +449,34 @@ async function salvar(voltar = true) {
       ocorrencias: ocorrencias.value.trim() || null,
       observacoes: observacoes.value.trim() || null,
       link_pdf: linkPdf.value,
+      link_instrumento_cobranca: linkCobranca.value,
     };
-    if (editMode.value && nfId.value) {
-      const { error: err } = await supabase
-        .from("notas_fiscais")
-        .update(payload)
-        .eq("id", nfId.value);
+    let id = nfId.value;
+    if (editMode.value && id) {
+      const { error: err } = await supabase.from("notas_fiscais").update(payload).eq("id", id);
       if (err) throw err;
-      // persiste itens da NF (update/insert)
+    } else {
+      const { data, error: err } = await supabase
+        .from("notas_fiscais")
+        .insert(payload)
+        .select("id")
+        .single();
+      if (err || !data) throw err ?? new Error("Falha ao criar NF.");
+      id = (data as { id: number }).id;
+    }
+
+    // sincroniza nf_grupos (apaga e reinsere o conjunto selecionado)
+    await supabase.from("nf_grupos").delete().eq("nf_id", id);
+    await supabase
+      .from("nf_grupos")
+      .insert(gruposSel.value.map((g) => ({ nf_id: id, grupo_id: g })));
+
+    // persiste itens da NF (update/insert)
+    if (editMode.value) {
       for (const l of nfItens.value) {
         if (!l.item_id || l.quantidade <= 0) continue;
         const linha = {
-          nf_id: nfId.value,
+          nf_id: id,
           item_id: l.item_id,
           quantidade: l.quantidade,
           valor_unitario: l.valor_unitario,
@@ -330,19 +489,15 @@ async function salvar(voltar = true) {
           if (e2) throw e2;
         }
       }
-      if (voltar) router.push("/nfs");
-      return true;
-    } else {
-      const { data, error: err } = await supabase
-        .from("notas_fiscais")
-        .insert(payload)
-        .select("id")
-        .single();
-      if (err || !data) throw err ?? new Error("Falha ao criar NF.");
-      // segue para o modo edição para permitir o rateio
-      router.replace(`/nfs/${(data as { id: number }).id}`);
+    }
+
+    if (!editMode.value) {
+      // segue para o modo edição para liberar itens, recibos e rateio
+      router.replace(`/nfs/${id}`);
       return true;
     }
+    if (voltar) router.push("/nfs");
+    return true;
   } catch (e) {
     error.value = e instanceof Error ? e.message : "Erro ao salvar.";
     return false;
@@ -355,7 +510,6 @@ async function distribuirFifo() {
   if (!nfId.value) return;
   error.value = null;
   aviso.value = null;
-  // garante que o cabeçalho (inclusive valor_total) está gravado antes do rateio
   const ok = await salvar(false);
   if (!ok) return;
   distribuindo.value = true;
@@ -366,7 +520,7 @@ async function distribuirFifo() {
     if (err) throw err;
     await Promise.all([loadRateios(), loadEmpenhosDoGrupo(), loadNFItens()]);
     type Rel = { resultado: string; item_ref: string | null; quantidade: number | null };
-    const rel = ((data as unknown as Rel[]) ?? []);
+    const rel = (data as unknown as Rel[]) ?? [];
     const vinc = rel.filter((r) => r.resultado === "vinculado").length;
     const sem = rel.filter((r) => r.resultado === "sem_cobertura");
     const fin = rel.filter((r) => r.resultado === "financeiro").length;
@@ -444,6 +598,85 @@ async function removerRateio(r: RateioRow) {
   else await Promise.all([loadRateios(), loadEmpenhosDoGrupo()]);
 }
 
+async function gerarPdfLancamento() {
+  if (!nfId.value) return;
+  error.value = null;
+  const ok = await salvar(false);
+  if (!ok) return;
+  gerandoPdf.value = true;
+  try {
+    const [{ data: itensData }, { data: empData }] = await Promise.all([
+      supabase
+        .from("nf_itens")
+        .select("*, itens (descricao, unidade, codigo_catmat), empenhos (numero)")
+        .eq("nf_id", nfId.value)
+        .order("id"),
+      supabase
+        .from("nf_empenhos")
+        .select("valor_debitado, empenhos (numero)")
+        .eq("nf_id", nfId.value)
+        .order("id"),
+    ]);
+    type NIRow = {
+      quantidade: number; valor_unitario: number | null;
+      itens: { descricao: string; unidade: string; codigo_catmat: string | null } | null;
+      empenhos: { numero: string } | null;
+    };
+    type NERow = { valor_debitado: number; empenhos: { numero: string } | null };
+    const itens = ((itensData as unknown as NIRow[] | null) ?? []).map((r) => ({
+      codigo_catmat: r.itens?.codigo_catmat ?? null,
+      descricao: r.itens?.descricao ?? "—",
+      unidade: r.itens?.unidade ?? "",
+      quantidade: Number(r.quantidade),
+      valor_unitario: r.valor_unitario == null ? null : Number(r.valor_unitario),
+      empenho_numero: r.empenhos?.numero ?? null,
+    }));
+    const empenhos = ((empData as unknown as NERow[] | null) ?? []).map((r) => ({
+      numero: r.empenhos?.numero ?? "—",
+      valor_debitado: Number(r.valor_debitado),
+    }));
+    const forn = fornecedorAtual.value;
+    const { doc, filename } = montarPdfNFLancamento({
+      numero: numero.value,
+      dataEmissao: dataEmissao.value || null,
+      dataEntrega: dataEntrega.value,
+      fornecedor: {
+        codigo: forn?.codigo ?? "—",
+        razao_social: forn?.razao_social ?? "—",
+        cnpj: forn?.cnpj ?? null,
+      },
+      grupos: gruposSelObjs.value.map((g) => g.nome),
+      valorTotal: valorTotal.value,
+      processoPagamento: processoPagamento.value.trim() || null,
+      itens,
+      empenhos,
+      emitidoPor: auth.perfil?.nome ?? "",
+      logoDataUrl: await carregarLogo(),
+    });
+    doc.save(filename);
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Falha ao gerar o PDF de lançamento.";
+  } finally {
+    gerandoPdf.value = false;
+  }
+}
+
+// reatividade: recarrega tudo ao trocar de NF (inclui o replace após criar)
+watch(nfId, () => {
+  loadNF();
+});
+
+// ao alterar os grupos selecionados, recarrega itens e empenhos disponíveis
+watch(
+  gruposSel,
+  () => {
+    loadItensDosGrupos();
+    loadEmpenhosDoGrupo();
+    if (nfId.value) buscarRecibosCandidatos();
+  },
+  { deep: true }
+);
+
 onMounted(async () => {
   await loadRefs();
   await loadNF();
@@ -461,17 +694,40 @@ onMounted(async () => {
     <template v-else>
       <div class="card p-5 space-y-4">
         <h2 class="font-medium text-slate-700 dark:text-slate-200">Cabeçalho</h2>
+
+        <div>
+          <span class="label">Grupo(s) / contrato(s)</span>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">
+            Selecione um ou mais grupos. Com dois ou mais, a NF reúne itens de cada grupo e a
+            distribuição pela fila debita cada item no empenho do seu próprio grupo.
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="g in grupos"
+              :key="g.id"
+              type="button"
+              class="rounded-full border px-3 py-1 text-sm transition-colors"
+              :class="gruposSel.includes(g.id)
+                ? 'bg-cpii-600 text-white border-cpii-600'
+                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:border-cpii-500'"
+              @click="toggleGrupo(g.id)"
+            >{{ g.nome }}</button>
+          </div>
+          <p v-if="grupoPrincipal" class="text-xs text-slate-500 dark:text-slate-400 mt-2">
+            Grupo principal: <strong>{{ grupoPrincipal.nome }}</strong>
+            <span v-if="gruposSel.length > 1"> · +{{ gruposSel.length - 1 }} grupo(s)</span>
+            <span v-if="fornecedorAtual"> · Fornecedor: <strong>{{ fornecedorAtual.razao_social }}</strong></span>
+          </p>
+        </div>
+
         <div class="grid sm:grid-cols-2 gap-4">
           <div>
             <label class="label">Nº da NF</label>
             <input v-model="numero" type="text" class="input" required />
           </div>
           <div>
-            <label class="label">Grupo</label>
-            <select v-model="grupoId" class="input" required @change="loadEmpenhosDoGrupo">
-              <option :value="null" disabled>Selecione…</option>
-              <option v-for="g in grupos" :key="g.id" :value="g.id">{{ g.nome }}</option>
-            </select>
+            <label class="label">Valor total (R$)</label>
+            <input v-model.number="valorTotal" type="number" step="0.01" min="0" class="input" />
           </div>
           <div>
             <label class="label">Data de emissão</label>
@@ -480,10 +736,6 @@ onMounted(async () => {
           <div>
             <label class="label">Data de entrega</label>
             <input v-model="dataEntrega" type="date" class="input" required />
-          </div>
-          <div>
-            <label class="label">Valor total (R$)</label>
-            <input v-model.number="valorTotal" type="number" step="0.01" min="0" class="input" />
           </div>
           <div>
             <label class="label">Status</label>
@@ -504,9 +756,7 @@ onMounted(async () => {
             <input v-model="dataAberturaProcesso" type="date" class="input" />
           </div>
           <PdfUpload v-model="linkPdf" bucket="pdfs-nfs" label="PDF da nota fiscal" />
-          <div v-if="grupoAtual" class="text-sm text-slate-600 dark:text-slate-300 self-end pb-2">
-            Fornecedor do grupo: <strong>{{ grupoAtual.nome.split("-").pop()?.trim() }}</strong>
-          </div>
+          <PdfUpload v-model="linkCobranca" bucket="pdfs-cobranca" label="Instrumento de Cobrança (Contratos.gov)" />
         </div>
         <div class="grid sm:grid-cols-2 gap-4">
           <div>
@@ -533,11 +783,11 @@ onMounted(async () => {
 
         <div class="grid sm:grid-cols-12 gap-3 items-end">
           <div class="sm:col-span-6">
-            <label class="label">Item do grupo (CatMat — nome)</label>
-            <select v-model="novoItemId" class="input" :disabled="!grupoId">
+            <label class="label">Item do(s) grupo(s) (CatMat — nome)</label>
+            <select v-model="novoItemId" class="input" :disabled="!gruposSel.length">
               <option :value="null" disabled>Selecione…</option>
-              <option v-for="i in itensDoGrupoNF" :key="i.id" :value="i.id">
-                {{ i.codigo_catmat ? i.codigo_catmat + " — " : "" }}{{ i.descricao }}
+              <option v-for="i in itensDosGrupos" :key="i.id" :value="i.id">
+                {{ labelGrupoDoItem(i) }}{{ i.codigo_catmat ? i.codigo_catmat + " — " : "" }}{{ i.descricao }}
               </option>
             </select>
           </div>
@@ -554,59 +804,75 @@ onMounted(async () => {
           </div>
         </div>
 
-        <table v-if="nfItens.length" class="w-full text-sm">
-          <thead class="text-xs text-slate-500 dark:text-slate-400 uppercase">
-            <tr>
-              <th class="text-left py-1">CatMat</th>
-              <th class="text-left py-1">Item</th>
-              <th class="text-left py-1">Empenho</th>
-              <th class="text-right py-1">Qtd</th>
-              <th class="text-right py-1">Valor unit.</th>
-              <th class="text-right py-1">Subtotal</th>
-              <th class="py-1"></th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-            <tr v-for="(l, idx) in nfItens" :key="l.id ?? `n${idx}`">
-              <td class="py-2 text-slate-600 dark:text-slate-300 w-24">{{ l._catmat ?? "—" }}</td>
-              <td class="py-2">{{ l._descricao }}</td>
-              <td class="py-2 w-32">
-                <span
-                  v-if="l._empenhoNumero"
-                  class="inline-block rounded-full border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300 px-2 py-0.5 text-xs"
-                >{{ l._empenhoNumero }}</span>
-                <span
-                  v-else
-                  class="inline-block rounded-full border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-xs"
-                  title="Sem vínculo — rode a distribuição pela fila ou empenhe o item"
-                >pendente</span>
-              </td>
-              <td class="py-2 text-right w-28">
-                <input v-model.number="l.quantidade" type="number" step="0.001" min="0" class="input text-right" />
-              </td>
-              <td class="py-2 text-right tabular-nums w-28">{{ fmtMoney(l.valor_unitario) }}</td>
-              <td class="py-2 text-right tabular-nums w-28">{{ fmtMoney(l.quantidade * (l.valor_unitario ?? 0)) }}</td>
-              <td class="py-2 text-right w-20">
-                <button type="button" class="text-red-600 dark:text-red-400 text-xs hover:underline" @click="removeNFItem(idx)">
-                  remover
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-if="nfItens.length" class="overflow-x-auto">
+          <table class="w-full text-sm min-w-[42rem]">
+            <thead class="text-xs text-slate-500 dark:text-slate-400 uppercase">
+              <tr>
+                <th class="text-left py-1">CatMat</th>
+                <th class="text-left py-1">Item</th>
+                <th class="text-left py-1">Empenho</th>
+                <th class="text-right py-1">Qtd</th>
+                <th class="text-right py-1">Valor unit. (faturado)</th>
+                <th class="text-right py-1">Subtotal</th>
+                <th class="py-1"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+              <tr v-for="(l, idx) in nfItens" :key="l.id ?? `n${idx}`">
+                <td class="py-2 text-slate-600 dark:text-slate-300 w-24">{{ l._catmat ?? "—" }}</td>
+                <td class="py-2">{{ l._descricao }}</td>
+                <td class="py-2 w-32">
+                  <span
+                    v-if="l._empenhoNumero"
+                    class="inline-block rounded-full border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300 px-2 py-0.5 text-xs"
+                  >{{ l._empenhoNumero }}</span>
+                  <span
+                    v-else
+                    class="inline-block rounded-full border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-xs"
+                    title="Sem vínculo — rode a distribuição pela fila ou empenhe o item"
+                  >pendente</span>
+                </td>
+                <td class="py-2 text-right w-24">
+                  <input v-model.number="l.quantidade" type="number" step="0.001" min="0" class="input text-right" />
+                </td>
+                <td class="py-2 text-right w-40">
+                  <input v-model.number="l.valor_unitario" type="number" step="0.0001" min="0" class="input text-right" />
+                  <select
+                    v-if="(precosPorItem.get(l.item_id) ?? []).length"
+                    class="input text-xs mt-1 py-1"
+                    @change="aplicarPrecoHistorico(l, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">usar preço do histórico…</option>
+                    <option
+                      v-for="pr in (precosPorItem.get(l.item_id) ?? [])"
+                      :key="pr.id"
+                      :value="pr.preco_unitario"
+                    >{{ pr.referencia ?? fmtDate(pr.vigencia_inicio) }} — {{ fmtMoney(pr.preco_unitario) }}</option>
+                  </select>
+                </td>
+                <td class="py-2 text-right tabular-nums w-28">{{ fmtMoney(l.quantidade * (l.valor_unitario ?? 0)) }}</td>
+                <td class="py-2 text-right w-20">
+                  <button type="button" class="text-red-600 dark:text-red-400 text-xs hover:underline" @click="removeNFItem(idx)">
+                    remover
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p v-else class="text-sm text-slate-500 dark:text-slate-400">
           Nenhum item lançado — selecione acima. (Os itens são gravados ao salvar a NF.)
         </p>
         <p v-if="nfItens.length" class="text-xs text-slate-500 dark:text-slate-400">
-          “Distribuir pela fila” vincula cada item ao empenho mais antigo que o possui
-          com saldo de quantidade (pelo CatMat), dividindo entre empenhos se preciso, e
-          recalcula o débito financeiro. Se alterar itens, redistribua.
+          O valor unitário é editável (use o preço faturado). O seletor “usar preço do histórico”
+          traz o preço original e os reajustes por apostilamento. “Distribuir pela fila” vincula
+          cada item ao empenho mais antigo do seu grupo com saldo (pelo CatMat) e recalcula o débito.
         </p>
       </div>
 
       <div v-if="editMode" class="card p-5 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <h2 class="font-medium text-slate-700 dark:text-slate-200">Recibos vinculados</h2>
+          <h2 class="font-medium text-slate-700 dark:text-slate-200">Recibos vinculados ({{ recibosVinculados.length }})</h2>
           <button
             type="button"
             class="btn-secondary"
@@ -625,6 +891,7 @@ onMounted(async () => {
               <th class="text-left py-1">Recebimento</th>
               <th class="text-left py-1">Status</th>
               <th class="text-left py-1">PDF</th>
+              <th class="py-1"></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -638,25 +905,65 @@ onMounted(async () => {
               <td class="py-2 whitespace-nowrap">{{ fmtDate(r.data_recebimento) }}</td>
               <td class="py-2 capitalize">{{ r.status }}</td>
               <td class="py-2">{{ r.link_pdf ? "anexado" : "—" }}</td>
+              <td class="py-2 text-right">
+                <button type="button" class="text-red-600 dark:text-red-400 text-xs hover:underline" @click="desvincularRecibo(r)">
+                  desvincular
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
         <p v-else class="text-sm text-slate-500 dark:text-slate-400">
-          Nenhum recibo associado a esta NF ainda — a associação é feita na edição do recibo.
+          Nenhum recibo associado a esta NF ainda — associe abaixo (recibos do mesmo grupo).
         </p>
+
+        <div class="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-2">
+          <label class="label">Associar recibos do(s) grupo(s)</label>
+          <input v-model="buscaRecibo" type="search" class="input max-w-xs" placeholder="Buscar nº do recibo…" />
+          <div v-if="buscandoRecibos" class="text-sm text-slate-500 dark:text-slate-400">Buscando…</div>
+          <div v-else-if="recibosCandidatos.length" class="max-h-56 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-700 border border-slate-200 dark:border-slate-700 rounded-md">
+            <div
+              v-for="r in recibosCandidatos"
+              :key="r.id"
+              class="flex items-center justify-between px-3 py-2 text-sm"
+            >
+              <span>
+                <strong>{{ r.numero }}</strong>
+                · {{ r.campi?.nome ?? "—" }}
+                · {{ fmtDate(r.data_recebimento) }}
+                <span class="capitalize text-slate-500 dark:text-slate-400">({{ r.status }})</span>
+              </span>
+              <button type="button" class="btn-ghost text-xs" @click="vincularRecibo(r)">vincular</button>
+            </div>
+          </div>
+          <p v-else class="text-sm text-slate-500 dark:text-slate-400">
+            Nenhum recibo disponível para os filtros atuais.
+          </p>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            O vínculo é livre dentro do grupo: um mesmo recibo pode ser referenciado por mais de uma NF do grupo.
+          </p>
+        </div>
       </div>
 
       <div v-if="editMode" class="card p-5 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h2 class="font-medium text-slate-700 dark:text-slate-200">Débito em empenhos</h2>
-          <button
-            type="button"
-            class="btn-primary"
-            :disabled="distribuindo || !valorTotal"
-            @click="distribuirFifo"
-          >
-            {{ distribuindo ? "Distribuindo…" : "Distribuir pela fila" }}
-          </button>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              class="btn-secondary"
+              :disabled="gerandoPdf"
+              @click="gerarPdfLancamento"
+            >{{ gerandoPdf ? "Gerando…" : "PDF de lançamento" }}</button>
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="distribuindo || !valorTotal"
+              @click="distribuirFifo"
+            >
+              {{ distribuindo ? "Distribuindo…" : "Distribuir pela fila" }}
+            </button>
+          </div>
         </div>
 
         <p class="text-sm text-slate-600 dark:text-slate-300">
@@ -704,7 +1011,7 @@ onMounted(async () => {
 
         <div class="grid sm:grid-cols-12 gap-3 items-end border-t border-slate-200 dark:border-slate-700 pt-4">
           <div class="sm:col-span-7">
-            <label class="label">Empenho do grupo (saldo)</label>
+            <label class="label">Empenho do(s) grupo(s) (saldo)</label>
             <select v-model="rateioEmpenhoId" class="input">
               <option :value="null" disabled>Selecione…</option>
               <option v-for="e in empenhosDoGrupo" :key="e.id" :value="e.id">

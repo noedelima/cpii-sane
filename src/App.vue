@@ -65,7 +65,10 @@ const navItems = computed(() => {
     { to: "/empenhos", label: "Empenhos" },
     { to: "/grupos", label: "Grupos" },
   ];
-  if (auth.isSane) items.push({ to: "/ateste", label: "Ateste" });
+  if (auth.isSane) {
+    items.push({ to: "/solicitar-nf", label: "Solicitar NF" });
+    items.push({ to: "/ateste", label: "Ateste" });
+  }
   return items;
 });
 </script>

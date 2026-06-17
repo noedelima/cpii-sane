@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import { fmtMoney } from "@/lib/format";
@@ -23,6 +23,7 @@ const numeroArabico = ref<number | null>(null);
 const numeroRomano = ref("");
 const categoria = ref("");
 const fornecedorId = ref<number | null>(null);
+const cnpj = ref("");
 const numeroAta = ref("");
 const numeroTc = ref("");
 const numeroPregao = ref("");
@@ -115,6 +116,27 @@ async function loadRefs() {
   fornecedores.value = (data as Fornecedor[] | null) ?? [];
 }
 
+/** Reflete o CNPJ do fornecedor selecionado no campo (editável e persistido nele). */
+function syncCnpjFromFornecedor() {
+  const f = fornecedores.value.find((x) => x.id === fornecedorId.value);
+  cnpj.value = f?.cnpj ?? "";
+}
+watch(fornecedorId, syncCnpjFromFornecedor);
+
+/** Grava o CNPJ no cadastro do fornecedor vinculado, se mudou. */
+async function persistirCnpj() {
+  if (!fornecedorId.value) return;
+  const f = fornecedores.value.find((x) => x.id === fornecedorId.value);
+  const novo = cnpj.value.trim() || null;
+  if (!f || (f.cnpj ?? "") === (novo ?? "")) return;
+  const { error: err } = await supabase
+    .from("fornecedores")
+    .update({ cnpj: novo })
+    .eq("id", fornecedorId.value);
+  if (err) throw err;
+  f.cnpj = novo;
+}
+
 async function loadGrupo() {
   if (!grupoId.value) return;
   loading.value = true;
@@ -133,6 +155,7 @@ async function loadGrupo() {
   numeroRomano.value = gr.numero_romano;
   categoria.value = gr.categoria;
   fornecedorId.value = gr.fornecedor_id;
+  syncCnpjFromFornecedor();
   numeroAta.value = gr.numero_ata ?? "";
   numeroTc.value = gr.numero_tc ?? "";
   numeroPregao.value = gr.numero_pregao ?? "";
@@ -170,6 +193,7 @@ async function salvarGrupo() {
     if (editMode.value && grupoId.value) {
       const { error: err } = await supabase.from("grupos").update(payload).eq("id", grupoId.value);
       if (err) throw err;
+      await persistirCnpj();
       router.push("/grupos");
     } else {
       const { data, error: err } = await supabase
@@ -178,6 +202,7 @@ async function salvarGrupo() {
         .select("id")
         .single();
       if (err || !data) throw err ?? new Error("Falha ao criar grupo.");
+      await persistirCnpj();
       // segue para a edição para liberar o cadastro de itens
       router.replace(`/grupos/${(data as { id: number }).id}`);
       await loadGrupo();
@@ -284,6 +309,19 @@ onMounted(async () => {
                 {{ f.codigo }} — {{ f.razao_social }}
               </option>
             </select>
+          </div>
+          <div>
+            <label class="label">CNPJ da empresa</label>
+            <input
+              v-model="cnpj"
+              type="text"
+              class="input"
+              placeholder="00.000.000/0000-00"
+              :disabled="!fornecedorId"
+            />
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              {{ fornecedorId ? "Gravado no cadastro do fornecedor ao salvar o grupo." : "Selecione um fornecedor para informar o CNPJ." }}
+            </p>
           </div>
           <div>
             <label class="label">Status</label>

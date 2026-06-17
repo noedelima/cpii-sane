@@ -10,6 +10,8 @@ export interface AtesteDocParams {
   fornecedor: { codigo: string; razao_social: string; cnpj: string | null };
   grupoPorId: Map<number, Grupo>;
   nfs: NotaFiscal[];
+  /** Empenhos usados para pagar cada NF (id da NF -> lista de NE + valor). */
+  nfEmpenhosPorNf: Map<number, { numero: string; valor: number }[]>;
   processoSuap: string | null;
   localEmissao: string;
   observacoes: string | null;
@@ -129,7 +131,8 @@ export function montarPdfAteste(p: AtesteDocParams): {
     ],
   });
 
-  type Row = (string | number)[] & { _sub?: boolean };
+  type Cell = string | number | { content: string; colSpan?: number; styles?: Record<string, unknown> };
+  type Row = Cell[] & { _sub?: boolean; _emp?: boolean };
   const body: Row[] = [];
   for (const r of resumo) {
     const gid = r.grupo?.id;
@@ -141,6 +144,17 @@ export function montarPdfAteste(p: AtesteDocParams): {
         n.processo_pagamento ?? "—",
         fmtMoney(n.valor_total),
       ] as Row);
+      const emps = p.nfEmpenhosPorNf.get(n.id) ?? [];
+      if (emps.length) {
+        const txt =
+          "Empenhos: " + emps.map((e) => `${e.numero} (${fmtMoney(e.valor)})`).join("  ·  ");
+        const er = [
+          "",
+          { content: txt, colSpan: 4, styles: { fontStyle: "italic", fontSize: 7.5, textColor: [90, 90, 90] } },
+        ] as unknown as Row;
+        er._emp = true;
+        body.push(er);
+      }
     }
     const sub = [
       "",
