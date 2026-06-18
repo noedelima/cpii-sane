@@ -127,7 +127,7 @@ create table if not exists public.empenhos_itens (
   id              bigserial primary key,
   empenho_id      bigint not null references public.empenhos(id) on delete cascade,
   item_id         bigint not null references public.itens(id) on delete restrict,
-  quantidade      numeric(14,3) not null default 0,
+  quantidade      numeric(14,4) not null default 0,
   -- snapshot do preço na época do empenho (o catálogo pode ser reajustado)
   valor_unitario  numeric(14,4),
   observacoes     text,
@@ -219,7 +219,7 @@ create table if not exists public.nf_itens (
   nf_id           bigint not null references public.notas_fiscais(id) on delete cascade,
   item_id         bigint not null references public.itens(id) on delete restrict,
   empenho_id      bigint references public.empenhos(id) on delete set null,
-  quantidade      numeric(14,3) not null,
+  quantidade      numeric(14,4) not null,
   valor_unitario  numeric(14,4),
   observacoes     text
 );
@@ -1185,7 +1185,7 @@ select
      - coalesce(c.consumido_valor, 0))::numeric(14,2) as saldo_valor,
   case when i.preco_unitario > 0
     then round((ei.quantidade * coalesce(ei.valor_unitario, i.preco_unitario)
-           - coalesce(c.consumido_valor, 0)) / i.preco_unitario, 3)
+           - coalesce(c.consumido_valor, 0)) / i.preco_unitario, 4)
     else null end                               as saldo_qtd
 from public.empenhos e
 join public.empenhos_itens ei on ei.empenho_id = e.id
@@ -1390,3 +1390,51 @@ begin
        for each row execute function public.fn_audit()', t);
   end loop;
 end $audit_attach$;
+
+-- =========================================================
+-- 18) Precisão de quantidade: 4 casas no vínculo NE/NF — 06/2026
+-- =========================================================
+-- Para correspondência exata de saldo no relançamento manual de NFs/NEs antigas
+-- (evita diferença de arredondamento de ~R$ 0,01). As quantidades passam de 3
+-- para 4 casas decimais; os valores existentes são preservados. A view de saldos
+-- por item depende da coluna, então é derrubada antes do alter e recriada depois.
+drop view if exists public.vw_empenho_item_saldos;
+alter table public.empenhos_itens alter column quantidade type numeric(14,4);
+alter table public.nf_itens       alter column quantidade type numeric(14,4);
+
+create or replace view public.vw_empenho_item_saldos
+with (security_invoker = on) as
+select
+  e.id                                          as empenho_id,
+  e.numero                                      as empenho_numero,
+  e.data_emissao,
+  e.fornecedor_id,
+  e.status                                      as empenho_status,
+  ei.item_id,
+  i.grupo_id,
+  i.descricao,
+  i.codigo_catmat,
+  i.unidade,
+  ei.quantidade                                 as qtd_empenhada,
+  coalesce(ei.valor_unitario, i.preco_unitario) as valor_unitario_ne,
+  i.preco_unitario                              as preco_vigente,
+  coalesce(c.consumido_qtd, 0)                  as consumido_qtd,
+  coalesce(c.consumido_valor, 0)::numeric(14,2) as consumido_valor,
+  (ei.quantidade * coalesce(ei.valor_unitario, i.preco_unitario))::numeric(14,2) as valor_inicial,
+  (ei.quantidade * coalesce(ei.valor_unitario, i.preco_unitario)
+     - coalesce(c.consumido_valor, 0))::numeric(14,2) as saldo_valor,
+  case when i.preco_unitario > 0
+    then round((ei.quantidade * coalesce(ei.valor_unitario, i.preco_unitario)
+           - coalesce(c.consumido_valor, 0)) / i.preco_unitario, 4)
+    else null end                               as saldo_qtd
+from public.empenhos e
+join public.empenhos_itens ei on ei.empenho_id = e.id
+join public.itens i on i.id = ei.item_id
+left join (
+  select empenho_id, item_id,
+         sum(quantidade)                              as consumido_qtd,
+         sum(quantidade * coalesce(valor_unitario, 0)) as consumido_valor
+  from public.nf_itens
+  where empenho_id is not null
+  group by empenho_id, item_id
+) c on c.empenho_id = e.id and c.item_id = ei.item_id;

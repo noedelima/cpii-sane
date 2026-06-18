@@ -504,11 +504,14 @@ async function salvar(voltar = true) {
     // persiste itens da NF (update/insert)
     if (editMode.value) {
       for (const l of nfItens.value) {
-        if (!l.item_id || l.quantidade <= 0) continue;
+        if (!l.item_id) continue;
+        const q = Number(l.quantidade);
+        if (!Number.isFinite(q) || q < 0) continue;
+        if (!l.id && q <= 0) continue; // não cria item novo zerado (mas permite zerar um existente)
         const linha = {
           nf_id: id,
           item_id: l.item_id,
-          quantidade: l.quantidade,
+          quantidade: q,
           valor_unitario: l.valor_unitario,
           empenho_id: l.empenho_id ?? null,
         };
@@ -886,7 +889,7 @@ onMounted(async () => {
           </div>
           <div class="sm:col-span-2">
             <label class="label">Qtd ({{ itemSelecionadoNF?.unidade ?? "un" }})</label>
-            <input v-model.number="novaQtd" type="number" step="0.001" min="0" class="input" />
+            <input v-model.number="novaQtd" type="number" step="0.0001" min="0" class="input" />
           </div>
           <div class="sm:col-span-2">
             <label class="label">Valor unit.</label>
@@ -923,7 +926,7 @@ onMounted(async () => {
                   </select>
                 </td>
                 <td class="py-2 text-right w-24">
-                  <input v-model.number="l.quantidade" type="number" step="0.001" min="0" class="input text-right" />
+                  <input v-model.number="l.quantidade" type="number" step="0.0001" min="0" class="input text-right" />
                 </td>
                 <td class="py-2 text-right w-40">
                   <input v-model.number="l.valor_unitario" type="number" step="0.0001" min="0" class="input text-right" />

@@ -412,11 +412,14 @@ async function salvar() {
     }
 
     for (const l of empItens.value) {
-      if (!l.item_id || l.quantidade <= 0) continue;
+      if (!l.item_id) continue;
+      const q = Number(l.quantidade);
+      if (!Number.isFinite(q) || q < 0) continue;
+      if (!l.id && q <= 0) continue; // não cria item novo zerado (mas permite zerar um existente)
       const linha = {
         empenho_id: id,
         item_id: l.item_id,
-        quantidade: l.quantidade,
+        quantidade: q,
         valor_unitario: l.valor_unitario,
       };
       if (l.id) {
@@ -675,7 +678,7 @@ onMounted(async () => {
           </div>
           <div class="sm:col-span-2">
             <label class="label">Qtd ({{ itemSelecionado?.unidade ?? "un" }})</label>
-            <input v-model.number="novaQtd" type="number" step="0.001" min="0" class="input" />
+            <input v-model.number="novaQtd" type="number" step="0.0001" min="0" class="input" />
           </div>
           <div class="sm:col-span-2">
             <button type="button" class="btn-secondary w-full" @click="addEmpItem">Adicionar</button>
@@ -700,17 +703,17 @@ onMounted(async () => {
               <td class="py-2 text-slate-600 dark:text-slate-300 w-24">{{ l._catmat ?? "—" }}</td>
               <td class="py-2">{{ l._descricao }}</td>
               <td class="py-2 text-right w-24">
-                <input v-model.number="l.quantidade" type="number" step="0.001" min="0" class="input text-right" />
+                <input v-model.number="l.quantidade" type="number" step="0.0001" min="0" class="input text-right" />
               </td>
               <td class="py-2 text-right w-28">
                 <input v-model.number="l.valor_unitario" type="number" step="0.0001" min="0" class="input text-right" />
               </td>
               <td class="py-2 text-right tabular-nums w-24">{{ fmtMoney(l.quantidade * (l.valor_unitario ?? 0)) }}</td>
               <td class="py-2 text-right tabular-nums w-24 text-slate-600 dark:text-slate-300">
-                {{ consumoPorItem.get(l.item_id)?.qtd?.toFixed(3) ?? "0" }} {{ l._unidade }}
+                {{ consumoPorItem.get(l.item_id)?.qtd?.toFixed(4) ?? "0" }} {{ l._unidade }}
               </td>
               <td class="py-2 text-right tabular-nums w-24" :class="(saldoLinha(l) ?? 0) < 0 ? 'text-red-600 dark:text-red-400' : ''">
-                {{ saldoLinha(l) == null ? "—" : saldoLinha(l)!.toFixed(3) + " " + l._unidade }}
+                {{ saldoLinha(l) == null ? "—" : saldoLinha(l)!.toFixed(4) + " " + l._unidade }}
               </td>
               <td class="py-2 text-right w-20">
                 <button type="button" class="text-red-600 dark:text-red-400 text-xs hover:underline" @click="removeEmpItem(idx)">

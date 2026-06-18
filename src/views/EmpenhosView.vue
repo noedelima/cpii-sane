@@ -137,7 +137,7 @@ const saldoGrupoTotalValor = computed(() =>
 
 function fmtQtd(n: number | null, un: string): string {
   if (n == null) return "—";
-  return `${Number(n).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ${un}`;
+  return `${Number(n).toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ${un}`;
 }
 
 // ---- req 11: PDF de saldos das NEs selecionadas ----

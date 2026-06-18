@@ -40,7 +40,7 @@ const M = 18;
 
 function qtd(n: number | null | undefined, un: string): string {
   if (n == null) return "—";
-  return `${Number(n).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ${un}`;
+  return `${Number(n).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 4 })} ${un}`;
 }
 
 /** Desenha o cabeçalho institucional e devolve o Y para o conteúdo. */
