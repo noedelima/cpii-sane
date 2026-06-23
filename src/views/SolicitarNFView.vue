@@ -112,13 +112,22 @@ async function carregarRecibos() {
   if (!fornecedorId.value) return;
   loading.value = true;
   error.value = null;
+  // O recibo não guarda fornecedor_id — o fornecedor vem do grupo. Filtra-se então
+  // pelos grupos do fornecedor (ou pelo grupo selecionado).
+  const gruposIds = gruposDoFornecedor.value.map((g) => g.id);
+  if (!gruposIds.length) {
+    recibos.value = [];
+    selecionados.value = new Set();
+    loading.value = false;
+    return;
+  }
   let q = supabase
     .from("recibos")
     .select("*, campi (nome)")
-    .eq("fornecedor_id", fornecedorId.value)
     .order("data_recebimento", { ascending: false })
     .limit(300);
   if (grupoFiltro.value) q = q.eq("grupo_id", grupoFiltro.value);
+  else q = q.in("grupo_id", gruposIds);
   if (dataDe.value) q = q.gte("data_recebimento", dataDe.value);
   if (dataAte.value) q = q.lte("data_recebimento", dataAte.value);
   const { data, error: err } = await q;
