@@ -108,8 +108,13 @@ watch(fornecedorId, async () => {
 
 watch([grupoFiltro, dataDe, dataAte], carregarRecibos);
 
+// Token de requisição: descarta respostas de chamadas antigas e evita que dois
+// carregamentos sobrepostos acumulem no mesmo mapa (causava soma em dobro).
+let reqToken = 0;
+
 async function carregarRecibos() {
   if (!fornecedorId.value) return;
+  const token = ++reqToken;
   loading.value = true;
   error.value = null;
   // O recibo não guarda fornecedor_id — o fornecedor vem do grupo. Filtra-se então
@@ -118,6 +123,8 @@ async function carregarRecibos() {
   if (!gruposIds.length) {
     recibos.value = [];
     selecionados.value = new Set();
+    reciboItens.value = new Map();
+    itensMeta.value = new Map();
     loading.value = false;
     return;
   }
@@ -131,6 +138,7 @@ async function carregarRecibos() {
   if (dataDe.value) q = q.gte("data_recebimento", dataDe.value);
   if (dataAte.value) q = q.lte("data_recebimento", dataAte.value);
   const { data, error: err } = await q;
+  if (token !== reqToken) return; // chamada obsoleta
   if (err) {
     error.value = err.message;
     loading.value = false;
@@ -138,33 +146,43 @@ async function carregarRecibos() {
   }
   recibos.value = (data as ReciboRow[] | null) ?? [];
   selecionados.value = new Set(recibos.value.map((r) => r.id));
-  await carregarItensDosRecibos();
-  loading.value = false;
+  await carregarItensDosRecibos(token);
+  if (token === reqToken) loading.value = false;
 }
 
-async function carregarItensDosRecibos() {
-  reciboItens.value = new Map();
-  itensMeta.value = new Map();
+async function carregarItensDosRecibos(token: number) {
   const ids = recibos.value.map((r) => r.id);
-  if (!ids.length) return;
+  if (!ids.length) {
+    reciboItens.value = new Map();
+    itensMeta.value = new Map();
+    return;
+  }
   const { data: ris } = await supabase
     .from("recibos_itens")
     .select("recibo_id, item_id, quantidade, unidade")
     .in("recibo_id", ids);
+  if (token !== reqToken) return; // resultado obsoleto
   const linhas = (ris as ReciboItemRow[] | null) ?? [];
+  // mapa LOCAL, atribuído de uma vez no fim (evita acúmulo entre chamadas concorrentes)
+  const mapa = new Map<number, ReciboItemRow[]>();
   for (const ri of linhas) {
-    const arr = reciboItens.value.get(ri.recibo_id) ?? [];
+    const arr = mapa.get(ri.recibo_id) ?? [];
     arr.push(ri);
-    reciboItens.value.set(ri.recibo_id, arr);
+    mapa.set(ri.recibo_id, arr);
   }
   const itemIds = Array.from(new Set(linhas.map((l) => l.item_id)));
+  const metaMapa = new Map<
+    number,
+    { descricao: string; codigo_catmat: string | null; unidade: string; preco_unitario: number }
+  >();
   if (itemIds.length) {
     const { data: its } = await supabase
       .from("itens")
       .select("id, descricao, codigo_catmat, unidade, preco_unitario")
       .in("id", itemIds);
+    if (token !== reqToken) return;
     for (const it of (its as { id: number; descricao: string; codigo_catmat: string | null; unidade: string; preco_unitario: number }[] | null) ?? []) {
-      itensMeta.value.set(it.id, {
+      metaMapa.set(it.id, {
         descricao: it.descricao,
         codigo_catmat: it.codigo_catmat,
         unidade: it.unidade,
@@ -172,6 +190,9 @@ async function carregarItensDosRecibos() {
       });
     }
   }
+  if (token !== reqToken) return;
+  reciboItens.value = mapa;
+  itensMeta.value = metaMapa;
 }
 
 function toggleRecibo(id: number) {
