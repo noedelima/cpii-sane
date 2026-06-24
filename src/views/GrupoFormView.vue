@@ -113,6 +113,50 @@ async function aplicarReajuste() {
   }
 }
 
+// Apostilamento por valores: aplica os preços ATUAIS da tabela (editados pela SANE)
+// como novos preços vigentes, com data-base e referência, atualizando cache + histórico.
+async function aplicarApostilamentoValores() {
+  error.value = null;
+  reajResultado.value = null;
+  if (!grupoId.value || !reajDataBase.value) {
+    error.value = "Informe a data-base do apostilamento.";
+    return;
+  }
+  const ativos = itens.value.filter((l) => l.status === "ativo" && l.preco_unitario != null);
+  if (!ativos.length) {
+    error.value = "Nenhum item ativo com preço para apostilar.";
+    return;
+  }
+  const ok = confirm(
+    `Registrar apostilamento com os PREÇOS ATUAIS da tabela para ${ativos.length} item(ns) ativo(s), ` +
+      `data-base ${reajDataBase.value.split("-").reverse().join("/")}?\n\n` +
+      `Edite os valores na tabela antes, se necessário. O preço vigente e o histórico serão atualizados.`
+  );
+  if (!ok) return;
+  reajAplicando.value = true;
+  try {
+    const payload = ativos.map((l) => ({ item_id: l.id, preco: Number(l.preco_unitario) }));
+    const { data, error: err } = await supabase.rpc("aplicar_apostilamento_itens", {
+      p_itens: payload,
+      p_data_base: reajDataBase.value,
+      p_referencia: reajReferencia.value.trim() || null,
+    });
+    if (err) throw err;
+    type R = { item_ref: string; preco_antigo: number; preco_novo: number };
+    const rows = (data as unknown as R[]) ?? [];
+    reajResultado.value =
+      `Apostilamento registrado para ${rows.length} item(ns) ` +
+      `na data-base ${reajDataBase.value.split("-").reverse().join("/")}.` +
+      (rows.length ? ` Ex.: ${rows[0].item_ref}: ${fmtMoney(rows[0].preco_antigo)} → ${fmtMoney(rows[0].preco_novo)}.` : "");
+    reajReferencia.value = "";
+    await loadGrupo();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Falha ao registrar o apostilamento.";
+  } finally {
+    reajAplicando.value = false;
+  }
+}
+
 const romanos = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
   "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];
 
@@ -521,6 +565,20 @@ onMounted(async () => {
               @click="aplicarReajuste"
             >{{ reajAplicando ? "Aplicando…" : "Aplicar reajuste" }}</button>
           </div>
+        </div>
+        <div class="border-t border-slate-200 dark:border-slate-700 pt-4">
+          <p class="text-sm text-slate-500 dark:text-slate-400 mb-2">
+            <strong>Apostilamento por valores</strong> (preços específicos por item, não um percentual único):
+            edite o <strong>Valor unit.</strong> de cada item na tabela acima, informe a <strong>data-base</strong> e a
+            <strong>referência</strong> ao lado, e registre — o preço vigente de cada item e o histórico são atualizados de
+            uma vez, e a Solicitação de NF passa a usar o valor apostilado.
+          </p>
+          <button
+            type="button"
+            class="btn-secondary"
+            :disabled="reajAplicando || !reajDataBase"
+            @click="aplicarApostilamentoValores"
+          >{{ reajAplicando ? "Registrando…" : "Registrar apostilamento com os preços da tabela" }}</button>
         </div>
         <p v-if="reajResultado" class="rounded-md bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 p-3 text-sm text-green-800 dark:text-green-200">
           {{ reajResultado }}

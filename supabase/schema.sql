@@ -1333,6 +1333,77 @@ create policy p_solic_nf_itens_write on public.solicitacoes_nf_itens for all to 
   with check (public.current_papel() in ('sane','admin'));
 
 -- =========================================================
+-- 21) Apostilamento por valores (preços específicos por item) — 06/2026
+-- =========================================================
+-- Complementa o reajuste por percentual: aplica novos preços ESPECÍFICOS por item
+-- (caso comum quando o apostilamento traz uma tabela de preços, não um índice
+-- único). Recebe um array [{item_id, preco}], historiza o preço original na 1ª vez,
+-- registra o novo preço com data-base/referência em itens_precos e atualiza o cache
+-- itens.preco_unitario — assim a Solicitação de NF e os novos lançamentos já usam o
+-- valor apostilado.
+create or replace function public.aplicar_apostilamento_itens(
+  p_itens jsonb,
+  p_data_base date,
+  p_referencia text default null
+)
+returns table (item_ref text, preco_antigo numeric, preco_novo numeric)
+language plpgsql
+as $ap$
+declare
+  v_rec record;
+  v_item record;
+begin
+  if coalesce(public.current_papel(), '') not in ('sane', 'admin') then
+    raise exception 'Apenas SANE/admin aplicam apostilamento.';
+  end if;
+  if p_data_base is null then
+    raise exception 'Informe a data-base do apostilamento.';
+  end if;
+  if p_itens is null or jsonb_typeof(p_itens) <> 'array' then
+    raise exception 'Lista de itens inválida.';
+  end if;
+
+  for v_rec in
+    select (e ->> 'item_id')::bigint as item_id,
+           round((e ->> 'preco')::numeric, 4) as preco
+    from jsonb_array_elements(p_itens) e
+  loop
+    if v_rec.preco is null or v_rec.preco < 0 then
+      continue;
+    end if;
+    select i.id, i.descricao, i.codigo_catmat, i.preco_unitario
+      into v_item
+      from public.itens i
+      where i.id = v_rec.item_id
+      for update;
+    if not found then
+      continue;
+    end if;
+
+    -- historiza o preço original na primeira aplicação
+    insert into public.itens_precos (item_id, preco_unitario, vigencia_inicio, referencia)
+    values (v_item.id, v_item.preco_unitario, date '1900-01-01', 'Preço original (ata)')
+    on conflict (item_id, vigencia_inicio) do nothing;
+
+    -- registra/atualiza o preço do apostilamento na data-base
+    insert into public.itens_precos (item_id, preco_unitario, vigencia_inicio, referencia)
+    values (v_item.id, v_rec.preco, p_data_base, p_referencia)
+    on conflict (item_id, vigencia_inicio) do update
+      set preco_unitario = excluded.preco_unitario,
+          referencia = excluded.referencia;
+
+    -- atualiza o cache do preço vigente
+    update public.itens set preco_unitario = v_rec.preco where id = v_item.id;
+
+    item_ref := coalesce(v_item.codigo_catmat || ' — ', '') || v_item.descricao;
+    preco_antigo := v_item.preco_unitario;
+    preco_novo := v_rec.preco;
+    return next;
+  end loop;
+end;
+$ap$;
+
+-- =========================================================
 -- 16) Múltiplos campi por perfil (vínculo N:N) — 06/2026
 -- =========================================================
 -- perfis.campus_id segue como campus PRINCIPAL (compatibilidade); perfis_campi
