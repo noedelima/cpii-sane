@@ -55,6 +55,17 @@ interface ItemConsolidado {
   quantidade: number;
   valor_unitario: number;
 }
+// Override de valor unitário por item (ex.: apostilamento ainda não refletido no
+// cadastro do item). Vazio = usa o preço de referência do cadastro.
+const precoEditado = ref<Map<number, number>>(new Map());
+function setPrecoItem(itemId: number, valor: string) {
+  const v = Number(String(valor).replace(",", "."));
+  const m = new Map(precoEditado.value);
+  if (Number.isFinite(v) && v >= 0) m.set(itemId, v);
+  else m.delete(itemId);
+  precoEditado.value = m;
+}
+
 const itensConsolidados = computed<ItemConsolidado[]>(() => {
   const m = new Map<number, ItemConsolidado>();
   for (const r of recibosSelecionados.value) {
@@ -68,7 +79,7 @@ const itensConsolidados = computed<ItemConsolidado[]>(() => {
           codigo_catmat: meta?.codigo_catmat ?? null,
           unidade: ri.unidade ?? meta?.unidade ?? "",
           quantidade: 0,
-          valor_unitario: Number(meta?.preco_unitario ?? 0),
+          valor_unitario: precoEditado.value.get(ri.item_id) ?? Number(meta?.preco_unitario ?? 0),
         };
         m.set(ri.item_id, e);
       }
@@ -95,6 +106,7 @@ watch(fornecedorId, async () => {
   grupoFiltro.value = null;
   recibos.value = [];
   selecionados.value = new Set();
+  precoEditado.value = new Map();
   sucesso.value = null;
   if (!fornecedorId.value) return;
   const { data } = await supabase
@@ -258,6 +270,22 @@ async function gerarSolicitacao() {
     const { error: e2 } = await supabase.from("solicitacoes_nf_recibos").insert(vinc);
     if (e2) throw e2;
 
+    // Snapshot dos itens consolidados (com o valor unitário possivelmente ajustado),
+    // para o PDF rebaixado do histórico continuar fiel ao que foi solicitado.
+    const itensSnap = itensConsolidados.value.map((it) => ({
+      solicitacao_id: solId,
+      item_id: it.item_id,
+      descricao: it.descricao,
+      codigo_catmat: it.codigo_catmat,
+      unidade: it.unidade,
+      quantidade: it.quantidade,
+      valor_unitario: it.valor_unitario,
+    }));
+    if (itensSnap.length) {
+      const { error: e3 } = await supabase.from("solicitacoes_nf_itens").insert(itensSnap);
+      if (e3) throw e3;
+    }
+
     const { doc, filename } = montarPdfSolicitacaoNF({
       solicitacaoId: solId,
       dataSolicitacao: new Date(),
@@ -331,32 +359,70 @@ async function rebaixarPdf(s: SolicRow) {
     type V = { recibos: ReciboRow | null };
     const recs = ((vinc as unknown as V[] | null) ?? []).map((v) => v.recibos).filter(Boolean) as ReciboRow[];
     if (!recs.length) throw new Error("Solicitação sem recibos vinculados.");
-    const recIds = recs.map((r) => r.id);
-    const { data: ris } = await supabase
-      .from("recibos_itens")
-      .select("recibo_id, item_id, quantidade, unidade")
-      .in("recibo_id", recIds);
-    const linhas = (ris as ReciboItemRow[] | null) ?? [];
-    const itemIds = Array.from(new Set(linhas.map((l) => l.item_id)));
-    const metaMap = new Map<number, { descricao: string; codigo_catmat: string | null; unidade: string; preco_unitario: number }>();
-    if (itemIds.length) {
-      const { data: its } = await supabase
-        .from("itens")
-        .select("id, descricao, codigo_catmat, unidade, preco_unitario")
-        .in("id", itemIds);
-      for (const it of (its as { id: number; descricao: string; codigo_catmat: string | null; unidade: string; preco_unitario: number }[] | null) ?? []) {
-        metaMap.set(it.id, { descricao: it.descricao, codigo_catmat: it.codigo_catmat, unidade: it.unidade, preco_unitario: Number(it.preco_unitario) });
+    // Itens: usa o snapshot da solicitação (fiel ao valor unitário ajustado);
+    // solicitações antigas (sem snapshot) recompõem a partir dos recibos.
+    let itensPdf: {
+      codigo_catmat: string | null;
+      descricao: string;
+      unidade: string;
+      quantidade: number;
+      valor_unitario: number;
+    }[] = [];
+    const { data: snap } = await supabase
+      .from("solicitacoes_nf_itens")
+      .select("item_id, descricao, codigo_catmat, unidade, quantidade, valor_unitario")
+      .eq("solicitacao_id", s.id);
+    const snapRows =
+      (snap as
+        | { item_id: number; descricao: string | null; codigo_catmat: string | null; unidade: string | null; quantidade: number; valor_unitario: number }[]
+        | null) ?? [];
+    if (snapRows.length) {
+      itensPdf = snapRows
+        .map((r) => ({
+          codigo_catmat: r.codigo_catmat,
+          descricao: r.descricao ?? "—",
+          unidade: r.unidade ?? "",
+          quantidade: Number(r.quantidade),
+          valor_unitario: Number(r.valor_unitario),
+        }))
+        .sort((a, b) => a.descricao.localeCompare(b.descricao));
+    } else {
+      const recIds = recs.map((r) => r.id);
+      const { data: ris } = await supabase
+        .from("recibos_itens")
+        .select("recibo_id, item_id, quantidade, unidade")
+        .in("recibo_id", recIds);
+      const linhas = (ris as ReciboItemRow[] | null) ?? [];
+      const itemIds = Array.from(new Set(linhas.map((l) => l.item_id)));
+      const metaMap = new Map<number, { descricao: string; codigo_catmat: string | null; unidade: string; preco_unitario: number }>();
+      if (itemIds.length) {
+        const { data: its } = await supabase
+          .from("itens")
+          .select("id, descricao, codigo_catmat, unidade, preco_unitario")
+          .in("id", itemIds);
+        for (const it of (its as { id: number; descricao: string; codigo_catmat: string | null; unidade: string; preco_unitario: number }[] | null) ?? []) {
+          metaMap.set(it.id, { descricao: it.descricao, codigo_catmat: it.codigo_catmat, unidade: it.unidade, preco_unitario: Number(it.preco_unitario) });
+        }
       }
-    }
-    const cons = new Map<number, ItemConsolidado>();
-    for (const ri of linhas) {
-      const meta = metaMap.get(ri.item_id);
-      let e = cons.get(ri.item_id);
-      if (!e) {
-        e = { item_id: ri.item_id, descricao: meta?.descricao ?? "—", codigo_catmat: meta?.codigo_catmat ?? null, unidade: ri.unidade ?? meta?.unidade ?? "", quantidade: 0, valor_unitario: Number(meta?.preco_unitario ?? 0) };
-        cons.set(ri.item_id, e);
+      const cons = new Map<number, ItemConsolidado>();
+      for (const ri of linhas) {
+        const meta = metaMap.get(ri.item_id);
+        let e = cons.get(ri.item_id);
+        if (!e) {
+          e = { item_id: ri.item_id, descricao: meta?.descricao ?? "—", codigo_catmat: meta?.codigo_catmat ?? null, unidade: ri.unidade ?? meta?.unidade ?? "", quantidade: 0, valor_unitario: Number(meta?.preco_unitario ?? 0) };
+          cons.set(ri.item_id, e);
+        }
+        e.quantidade += Number(ri.quantidade);
       }
-      e.quantidade += Number(ri.quantidade);
+      itensPdf = [...cons.values()]
+        .map((e) => ({
+          codigo_catmat: e.codigo_catmat,
+          descricao: e.descricao,
+          unidade: e.unidade,
+          quantidade: e.quantidade,
+          valor_unitario: e.valor_unitario,
+        }))
+        .sort((a, b) => a.descricao.localeCompare(b.descricao));
     }
     const gruposNomes = Array.from(new Set(recs.map((r) => r.grupo_id)))
       .map((id) => gruposDoFornecedor.value.find((g) => g.id === id)?.nome)
@@ -368,7 +434,7 @@ async function rebaixarPdf(s: SolicRow) {
       grupos: gruposNomes,
       periodo: { inicio: s.periodo_inicio, fim: s.periodo_fim },
       recibos: recs.map((r) => ({ numero: r.numero, campus: r.campi?.nome ?? "—", data_recebimento: r.data_recebimento })),
-      itens: [...cons.values()].sort((a, b) => a.descricao.localeCompare(b.descricao)),
+      itens: itensPdf,
       observacoes: s.observacoes,
       emitidoPor: s.gerado_por_nome ?? "",
       logoDataUrl: await carregarLogo(),
@@ -492,8 +558,8 @@ onMounted(async () => {
               <th class="text-left py-1">CatMat</th>
               <th class="text-left py-1">Item</th>
               <th class="text-right py-1">Qtd total</th>
-              <th class="text-right py-1">Vlr unit. (ref.)</th>
-              <th class="text-right py-1">Total (ref.)</th>
+              <th class="text-right py-1">Vlr unitário</th>
+              <th class="text-right py-1">Total</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -501,7 +567,15 @@ onMounted(async () => {
               <td class="py-2 text-slate-600 dark:text-slate-300">{{ it.codigo_catmat ?? "—" }}</td>
               <td class="py-2">{{ it.descricao }}</td>
               <td class="py-2 text-right tabular-nums">{{ it.quantidade.toLocaleString("pt-BR", { maximumFractionDigits: 3 }) }} {{ it.unidade }}</td>
-              <td class="py-2 text-right tabular-nums">{{ fmtMoney(it.valor_unitario) }}</td>
+              <td class="py-2 text-right">
+                <input
+                  type="number" min="0" step="0.0001"
+                  :value="it.valor_unitario"
+                  @change="setPrecoItem(it.item_id, ($event.target as HTMLInputElement).value)"
+                  class="input py-1 text-right tabular-nums w-28 ml-auto"
+                  title="Ajuste se houver apostilamento não refletido no cadastro do item"
+                />
+              </td>
               <td class="py-2 text-right tabular-nums">{{ fmtMoney(it.quantidade * it.valor_unitario) }}</td>
             </tr>
           </tbody>

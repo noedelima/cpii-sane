@@ -1304,6 +1304,35 @@ begin
 end $bf19$;
 
 -- =========================================================
+-- 20) Snapshot de itens da solicitação de NF — 06/2026
+-- =========================================================
+-- A solicitação passa a guardar os itens consolidados como enviados à empresa
+-- (descrição, unidade, quantidade e VALOR UNITÁRIO no momento). Assim a SANE pode
+-- ajustar o valor unitário (ex.: apostilamento ainda não refletido no cadastro do
+-- item) e o PDF rebaixado do histórico continua fiel ao que foi solicitado.
+create table if not exists public.solicitacoes_nf_itens (
+  id             bigserial primary key,
+  solicitacao_id bigint not null references public.solicitacoes_nf(id) on delete cascade,
+  item_id        bigint not null references public.itens(id) on delete restrict,
+  descricao      text,
+  codigo_catmat  text,
+  unidade        text,
+  quantidade     numeric(14,4) not null default 0,
+  valor_unitario numeric(14,4) not null default 0,
+  unique (solicitacao_id, item_id)
+);
+create index if not exists idx_solic_nf_itens_solic on public.solicitacoes_nf_itens(solicitacao_id);
+
+alter table public.solicitacoes_nf_itens enable row level security;
+drop policy if exists p_solic_nf_itens_select on public.solicitacoes_nf_itens;
+create policy p_solic_nf_itens_select on public.solicitacoes_nf_itens for select to authenticated
+  using (true);
+drop policy if exists p_solic_nf_itens_write on public.solicitacoes_nf_itens;
+create policy p_solic_nf_itens_write on public.solicitacoes_nf_itens for all to authenticated
+  using (public.current_papel() in ('sane','admin'))
+  with check (public.current_papel() in ('sane','admin'));
+
+-- =========================================================
 -- 16) Múltiplos campi por perfil (vínculo N:N) — 06/2026
 -- =========================================================
 -- perfis.campus_id segue como campus PRINCIPAL (compatibilidade); perfis_campi
@@ -1485,7 +1514,7 @@ begin
   for t in select unnest(array[
     'recibos','recibos_itens','notas_fiscais','nf_itens','nf_empenhos','nf_grupos','nf_recibos',
     'empenhos','empenhos_grupos','empenhos_itens','grupos','itens','itens_precos',
-    'atestes','atestes_nfs','solicitacoes_nf','solicitacoes_nf_recibos',
+    'atestes','atestes_nfs','solicitacoes_nf','solicitacoes_nf_recibos','solicitacoes_nf_itens',
     'perfis','perfis_campi','campi','fornecedores','configuracoes'
   ]) loop
     execute format('drop trigger if exists trg_audit on public.%s', t);
