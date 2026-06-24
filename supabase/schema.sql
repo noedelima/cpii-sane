@@ -1200,6 +1200,110 @@ left join (
 ) c on c.empenho_id = e.id and c.item_id = ei.item_id;
 
 -- =========================================================
+-- 19) Status do recibo segue a NF vinculada — 06/2026
+-- =========================================================
+-- Pedido SANE: ao classificar a NF como "pago", os recibos vinculados a ela
+-- (via nf_recibos e o legado recibos.nf_id) passam a "pago" automaticamente, em
+-- vez de serem alterados um a um (ex.: Nardelli, 50+ recibos por NF).
+-- Regra conservadora: só "pago" é propagado — glosa pode ser parcial e
+-- "confirmado" pode ser ato manual do campus, então não são propagados. Recibo
+-- "cancelado" não é reativado. Se a NF deixa de estar paga (ou o recibo é
+-- desvinculado), o recibo volta de "pago" para "pendente".
+
+-- "pago" se houver ao menos uma NF paga vinculada ao recibo.
+create or replace function public.recibo_status_sugerido(p_recibo_id bigint)
+returns text language sql stable as $rss$
+  select case when exists (
+    select 1 from public.notas_fiscais n
+    where n.status = 'pago'
+      and (
+        n.id in (select nr.nf_id from public.nf_recibos nr where nr.recibo_id = p_recibo_id)
+        or n.id = (select r.nf_id from public.recibos r where r.id = p_recibo_id)
+      )
+  ) then 'pago' else null end;
+$rss$;
+
+-- Aplica o status sugerido a um recibo (não mexe em recibo cancelado).
+create or replace function public.aplicar_status_recibo(p_recibo_id bigint)
+returns void language plpgsql as $asr$
+declare
+  v_atual text;
+  v_sug   text;
+begin
+  select status into v_atual from public.recibos where id = p_recibo_id;
+  if v_atual is null or v_atual = 'cancelado' then
+    return;
+  end if;
+  v_sug := public.recibo_status_sugerido(p_recibo_id);
+  if v_sug = 'pago' then
+    if v_atual is distinct from 'pago' then
+      update public.recibos set status = 'pago', updated_at = now() where id = p_recibo_id;
+    end if;
+  elsif v_atual = 'pago' then
+    update public.recibos set status = 'pendente', updated_at = now() where id = p_recibo_id;
+  end if;
+end;
+$asr$;
+
+-- Gatilho: mudança de status da NF recalcula os recibos vinculados.
+create or replace function public.trg_nf_status_propaga()
+returns trigger language plpgsql as $tnsp$
+declare v_rid bigint;
+begin
+  if new.status is not distinct from old.status then
+    return new;
+  end if;
+  for v_rid in
+    select nr.recibo_id from public.nf_recibos nr where nr.nf_id = new.id
+    union
+    select rc.id from public.recibos rc where rc.nf_id = new.id
+  loop
+    perform public.aplicar_status_recibo(v_rid);
+  end loop;
+  return new;
+end;
+$tnsp$;
+
+drop trigger if exists trg_nf_status_propaga on public.notas_fiscais;
+create trigger trg_nf_status_propaga
+  after update of status on public.notas_fiscais
+  for each row execute function public.trg_nf_status_propaga();
+
+-- Gatilho: ao vincular/desvincular recibo<->NF, recalcula o recibo afetado.
+create or replace function public.trg_nf_recibos_propaga()
+returns trigger language plpgsql as $tnrp$
+begin
+  if tg_op = 'DELETE' then
+    perform public.aplicar_status_recibo(old.recibo_id);
+    return old;
+  else
+    perform public.aplicar_status_recibo(new.recibo_id);
+    return new;
+  end if;
+end;
+$tnrp$;
+
+drop trigger if exists trg_nf_recibos_propaga_ins on public.nf_recibos;
+create trigger trg_nf_recibos_propaga_ins after insert on public.nf_recibos
+  for each row execute function public.trg_nf_recibos_propaga();
+drop trigger if exists trg_nf_recibos_propaga_del on public.nf_recibos;
+create trigger trg_nf_recibos_propaga_del after delete on public.nf_recibos
+  for each row execute function public.trg_nf_recibos_propaga();
+
+-- Backfill único: aplica a regra aos recibos já vinculados a alguma NF.
+do $bf19$
+declare v_rid bigint;
+begin
+  for v_rid in
+    select distinct recibo_id from public.nf_recibos
+    union
+    select id from public.recibos where nf_id is not null
+  loop
+    perform public.aplicar_status_recibo(v_rid);
+  end loop;
+end $bf19$;
+
+-- =========================================================
 -- 16) Múltiplos campi por perfil (vínculo N:N) — 06/2026
 -- =========================================================
 -- perfis.campus_id segue como campus PRINCIPAL (compatibilidade); perfis_campi

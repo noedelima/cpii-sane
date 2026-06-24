@@ -842,6 +842,9 @@ onMounted(async () => {
               <option value="glosado">Glosado</option>
               <option value="cancelado">Cancelado</option>
             </select>
+            <p v-if="status === 'pago'" class="text-xs text-green-700 dark:text-green-300 mt-1">
+              Ao salvar, os recibos vinculados a esta NF passam a “pago” automaticamente.
+            </p>
           </div>
           <div>
             <label class="label">Processo de pagamento (SUAP)</label>
