@@ -1404,6 +1404,99 @@ end;
 $ap$;
 
 -- =========================================================
+-- 22) Vínculo recibo<->NF bilateral + trava de campus — 06/2026
+-- =========================================================
+-- Dois caminhos coexistiam sem se falar: a tela do recibo grava recibos.nf_id e a
+-- tela da NF grava nf_recibos. Estes gatilhos mantêm os dois em sincronia, de forma
+-- ADITIVA (sem apagar vínculos por conta própria): associar em qualquer tela aparece
+-- na outra; desvincular numa tela remove o vínculo correspondente. recibos.nf_id
+-- representa o vínculo "principal" (o mais recente) do recibo.
+
+-- recibos.nf_id -> nf_recibos
+create or replace function public.trg_recibo_sync_nfrec()
+returns trigger language plpgsql as $srn$
+begin
+  if tg_op = 'UPDATE' and new.nf_id is not distinct from old.nf_id then
+    return null;
+  end if;
+  if new.nf_id is not null then
+    insert into public.nf_recibos (nf_id, recibo_id)
+    values (new.nf_id, new.id)
+    on conflict (nf_id, recibo_id) do nothing;
+  end if;
+  if tg_op = 'UPDATE' and old.nf_id is not null and old.nf_id is distinct from new.nf_id then
+    delete from public.nf_recibos where nf_id = old.nf_id and recibo_id = new.id;
+  end if;
+  return null;
+end;
+$srn$;
+
+drop trigger if exists trg_recibo_sync_nfrec on public.recibos;
+create trigger trg_recibo_sync_nfrec
+  after insert or update of nf_id on public.recibos
+  for each row execute function public.trg_recibo_sync_nfrec();
+
+-- nf_recibos -> recibos.nf_id (preenche o principal; recompõe ao remover o atual)
+create or replace function public.trg_nfrec_sync_nfid()
+returns trigger language plpgsql as $snf$
+declare v_cur bigint; v_latest bigint;
+begin
+  if tg_op = 'INSERT' then
+    update public.recibos set nf_id = new.nf_id
+    where id = new.recibo_id and nf_id is null;
+    return null;
+  else
+    select nf_id into v_cur from public.recibos where id = old.recibo_id;
+    if v_cur is not distinct from old.nf_id then
+      select nf_id into v_latest from public.nf_recibos
+        where recibo_id = old.recibo_id order by id desc limit 1;
+      update public.recibos set nf_id = v_latest
+        where id = old.recibo_id and nf_id is distinct from v_latest;
+    end if;
+    return null;
+  end if;
+end;
+$snf$;
+
+drop trigger if exists trg_nfrec_sync_nfid on public.nf_recibos;
+create trigger trg_nfrec_sync_nfid
+  after insert or delete on public.nf_recibos
+  for each row execute function public.trg_nfrec_sync_nfid();
+
+-- Trava: somente SANE/admin (ou processos internos sem papel — ex.: migração)
+-- definem/alteram recibos.nf_id. Perfis de campus não associam NF ao recibo (evita
+-- erro que só a SANE veria depois). A UI já oculta o campo; isto reforça no banco.
+create or replace function public.trg_recibo_nfid_guard()
+returns trigger language plpgsql as $grd$
+declare v_papel text := public.current_papel();
+begin
+  if v_papel is not null and v_papel not in ('sane', 'admin') then
+    if tg_op = 'INSERT' then
+      new.nf_id := null;
+    elsif new.nf_id is distinct from old.nf_id then
+      new.nf_id := old.nf_id;
+    end if;
+  end if;
+  return new;
+end;
+$grd$;
+
+drop trigger if exists trg_recibo_nfid_guard on public.recibos;
+create trigger trg_recibo_nfid_guard
+  before insert or update on public.recibos
+  for each row execute function public.trg_recibo_nfid_guard();
+
+-- Backfill: recibos vinculados via nf_recibos mas com nf_id nulo (associados pela
+-- tela da NF antes deste sincronismo) recebem o vínculo principal (o mais recente).
+update public.recibos r set nf_id = sub.nf_id
+from (
+  select distinct on (recibo_id) recibo_id, nf_id
+  from public.nf_recibos
+  order by recibo_id, id desc
+) sub
+where sub.recibo_id = r.id and r.nf_id is null;
+
+-- =========================================================
 -- 16) Múltiplos campi por perfil (vínculo N:N) — 06/2026
 -- =========================================================
 -- perfis.campus_id segue como campus PRINCIPAL (compatibilidade); perfis_campi
