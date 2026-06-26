@@ -37,6 +37,9 @@ const observacoes = ref("");
 
 const historico = ref<AtesteRow[]>([]);
 const historicoLoading = ref(false);
+const PAGE_HIST = 50;
+const paginaHist = ref(0);
+const totalHist = ref(0);
 
 const loading = ref(false);
 const gerando = ref(false);
@@ -254,15 +257,19 @@ async function gerarAteste() {
 // ---------- histórico ----------
 async function loadHistorico() {
   historicoLoading.value = true;
-  const { data, error: err } = await supabase
+  const desde = paginaHist.value * PAGE_HIST;
+  const { data, count, error: err } = await supabase
     .from("atestes")
-    .select("*, fornecedores (codigo, razao_social, cnpj)")
+    .select("*, fornecedores (codigo, razao_social, cnpj)", { count: "exact" })
     .order("id", { ascending: false })
-    .limit(50);
+    .range(desde, desde + PAGE_HIST - 1);
   if (err) error.value = err.message;
   historico.value = (data as AtesteRow[] | null) ?? [];
+  totalHist.value = count ?? 0;
   historicoLoading.value = false;
 }
+
+watch(paginaHist, loadHistorico);
 
 async function baixarDoHistorico(a: AtesteRow) {
   if (!a.fornecedores) return;
@@ -580,6 +587,20 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
+      </div>
+      <div
+        v-if="totalHist"
+        class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300"
+      >
+        <span>{{ totalHist }} atestes · página {{ paginaHist + 1 }} de {{ Math.max(1, Math.ceil(totalHist / PAGE_HIST)) }}</span>
+        <div class="flex gap-2">
+          <button class="btn-secondary" :disabled="paginaHist === 0" @click="paginaHist--">← Anterior</button>
+          <button
+            class="btn-secondary"
+            :disabled="(paginaHist + 1) * PAGE_HIST >= totalHist"
+            @click="paginaHist++"
+          >Próxima →</button>
+        </div>
       </div>
     </div>
   </div>
