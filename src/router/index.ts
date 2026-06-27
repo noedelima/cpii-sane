@@ -109,6 +109,12 @@ const routes: RouteRecordRaw[] = [
     meta: { roles: ["sane"] },
   },
   {
+    path: "/estimativa",
+    name: "estimativa",
+    component: () => import("@/views/EstimativaView.vue"),
+    meta: { roles: ["sane"] },
+  },
+  {
     path: "/ajuda",
     name: "ajuda",
     component: () => import("@/views/AjudaView.vue"),

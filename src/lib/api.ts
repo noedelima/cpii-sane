@@ -88,6 +88,7 @@ export const api = {
   me: () => request<{ user: { id: string; email?: string }; perfil: Row | null }>("GET", "/me"),
   dashboard: () => request<DashboardResp>("GET", "/dashboard"),
   analytics: () => request<AnalyticsResp>("GET", "/analytics"),
+  estimativa: () => request<{ data: Row[] }>("GET", "/estimativa"),
   recibos: (params: RecibosParams) =>
     request<ListResp<Row>>("GET", "/recibos" + qs(params as Record<string, string | number | null | undefined>)),
   notasFiscais: (params: NFParams) =>

@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { RouterLink } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import { api, USE_API } from "@/lib/api";
+import { useAuthStore } from "@/stores/auth";
 import { fmtMoney } from "@/lib/format";
 import type { VwGrupoResumo } from "@/types/database";
+
+const auth = useAuthStore();
 
 /* ---------- Resumo financeiro (existente) ---------- */
 const resumo = ref<VwGrupoResumo[]>([]);
@@ -263,9 +267,16 @@ onMounted(() => {
     </template>
 
     <!-- ============ Inteligência de consumo ============ -->
-    <div class="mt-10 mb-4 flex items-baseline gap-2">
-      <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Inteligência de consumo</h2>
-      <span class="text-xs text-slate-500 dark:text-slate-400">para planejar os próximos contratos</span>
+    <div class="mt-10 mb-4 flex items-baseline justify-between gap-2 flex-wrap">
+      <div class="flex items-baseline gap-2">
+        <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Inteligência de consumo</h2>
+        <span class="text-xs text-slate-500 dark:text-slate-400">para planejar os próximos contratos</span>
+      </div>
+      <RouterLink
+        v-if="auth.isSane"
+        to="/estimativa"
+        class="text-sm font-medium text-cpii-700 hover:underline dark:text-gold-300"
+      >Estimativa para a próxima ATA →</RouterLink>
     </div>
 
     <div v-if="aError" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300 mb-4">

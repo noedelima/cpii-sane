@@ -1697,6 +1697,7 @@ end $audit_attach$;
 -- por item depende da coluna, então é derrubada antes do alter e recriada depois.
 drop view if exists public.vw_empenho_item_saldos;
 -- views analiticas (secao 23) tambem dependem de nf_itens.quantidade:
+drop view if exists public.vw_estimativa_ata;
 drop view if exists public.vw_item_abc;
 drop view if exists public.vw_item_consumo;
 alter table public.empenhos_itens alter column quantidade type numeric(14,4);
@@ -1871,3 +1872,37 @@ select
   round(100 * b.utilizado / nullif(sum(b.utilizado) over (), 0), 1) as share_pct
 from base b
 order by b.utilizado desc;
+
+-- 23.6 Estimativa de consumo anual por item (base para a proxima ATA / ETP).
+--      Anualiza o consumo "melhor" pelo periodo de execucao observado (meses
+--      entre a primeira e a ultima entrega/recebimento nao-futuros).
+create or replace view public.vw_estimativa_ata
+with (security_invoker = on) as
+with per as (
+  select
+    least(
+      coalesce((select min(data_recebimento) from public.recibos where status <> 'cancelado'), current_date),
+      coalesce((select min(data_entrega) from public.notas_fiscais where status <> 'cancelado' and data_entrega <= current_date), current_date)
+    ) as inicio,
+    greatest(
+      coalesce((select max(data_recebimento) from public.recibos where status <> 'cancelado' and data_recebimento <= current_date), current_date),
+      coalesce((select max(data_entrega) from public.notas_fiscais where status <> 'cancelado' and data_entrega <= current_date), current_date)
+    ) as fim
+),
+base as (
+  select greatest(1, (date_part('year', age(fim, inicio)) * 12
+                      + date_part('month', age(fim, inicio)) + 1))::int as meses
+  from per
+)
+select
+  ic.item_id, ic.descricao, ic.grupo, ic.grupo_nome, ic.unidade,
+  ic.quantidade_ata,
+  ic.consumido_melhor,
+  b.meses                                          as meses_ref,
+  round(ic.consumido_melhor / b.meses * 12, 2)     as estimativa_anual,
+  case when ic.quantidade_ata > 0
+       then round(100 * (ic.consumido_melhor / b.meses * 12) / ic.quantidade_ata, 0)
+       end                                         as pct_anual_vs_ata
+from public.vw_item_consumo ic
+cross join base b
+order by ic.grupo, ic.descricao;
