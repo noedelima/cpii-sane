@@ -1,13 +1,12 @@
 {
   "name": "cpii-sane-api",
   "version": "1.0.0",
-  "description": "Camada de API (Azure Functions) do cpii-sane — servida em /api/* pelo Static Web Apps.",
+  "description": "Camada de API (Azure Functions) do cpii-sane — servida em /api/* pelo Static Web Apps. Zero dependências além do runtime.",
   "main": "src/functions/*.js",
   "scripts": {
     "start": "func start"
   },
   "dependencies": {
-    "@azure/functions": "^4.5.1",
-    "@supabase/supabase-js": "^2.45.4"
+    "@azure/functions": "^4.5.1"
   }
 }

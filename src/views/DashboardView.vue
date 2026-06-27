@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { supabase } from "@/lib/supabase";
+import { api, USE_API } from "@/lib/api";
 import { fmtMoney } from "@/lib/format";
 import type { VwGrupoResumo } from "@/types/database";
 
@@ -13,22 +14,28 @@ const error = ref<string | null>(null);
 async function load() {
   loading.value = true;
   error.value = null;
-  const [g, r, n] = await Promise.all([
-    supabase.from("vw_grupo_resumo").select("*").order("numero_arabico"),
-    supabase
-      .from("recibos")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pendente"),
-    supabase
-      .from("notas_fiscais")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pendente"),
-  ]);
-  if (g.error) error.value = g.error.message;
-  resumo.value = (g.data as VwGrupoResumo[] | null) ?? [];
-  recibosPendentes.value = r.count ?? 0;
-  nfsPendentes.value = n.count ?? 0;
-  loading.value = false;
+  try {
+    if (USE_API) {
+      const d = await api.dashboard();
+      resumo.value = (d.resumo as unknown as VwGrupoResumo[]) ?? [];
+      recibosPendentes.value = d.recibosPendentes ?? 0;
+      nfsPendentes.value = d.nfsPendentes ?? 0;
+    } else {
+      const [g, r, n] = await Promise.all([
+        supabase.from("vw_grupo_resumo").select("*").order("numero_arabico"),
+        supabase.from("recibos").select("id", { count: "exact", head: true }).eq("status", "pendente"),
+        supabase.from("notas_fiscais").select("id", { count: "exact", head: true }).eq("status", "pendente"),
+      ]);
+      if (g.error) throw new Error(g.error.message);
+      resumo.value = (g.data as VwGrupoResumo[] | null) ?? [];
+      recibosPendentes.value = r.count ?? 0;
+      nfsPendentes.value = n.count ?? 0;
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Falha ao carregar o dashboard.";
+  } finally {
+    loading.value = false;
+  }
 }
 
 const kpi = computed(() => {
