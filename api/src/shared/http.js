@@ -14,7 +14,12 @@ function withAuth(handler) {
     const token = bearer(request);
     if (!token) return json(401, { error: "Autenticação necessária." });
     const user = await getUser(token);
-    if (!user) return json(401, { error: "Token inválido ou expirado." });
+    if (!user) {
+      return json(401, {
+        error: "Token inválido ou expirado.",
+        _diag: { node: process.version, fetch: typeof fetch, hasUrl: !!SUPABASE_URL, keyLen: SUPABASE_ANON_KEY ? SUPABASE_ANON_KEY.length : 0 },
+      });
+    }
     try {
       return await handler({
         request,
