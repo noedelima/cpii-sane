@@ -85,7 +85,7 @@ const navItems = computed(() => {
 
 // Classes compartilhadas dos links de navegação (estado normal + ativo)
 const navLink =
-  "rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white";
+  "whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white";
 const navLinkActive = "!bg-cpii-600 !text-white hover:!bg-cpii-700 shadow-sm";
 const navLinkMobile =
   "block rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800";
@@ -107,14 +107,14 @@ const navLinkMobile =
             </span>
             <span class="leading-tight">
               <span class="block text-lg font-bold tracking-tight text-cpii-700 dark:text-gold-300">SANE</span>
-              <span class="hidden text-[11px] text-slate-500 dark:text-slate-400 sm:block">
+              <span class="hidden text-[11px] text-slate-500 dark:text-slate-400 sm:block xl:hidden">
                 Controle de Empenhos e NFs · DECOF/SENG
               </span>
             </span>
           </RouterLink>
 
           <!-- Navegação (desktop) -->
-          <nav v-if="auth.user" class="hidden items-center gap-0.5 lg:flex">
+          <nav v-if="auth.user" class="hidden items-center gap-0.5 xl:flex">
             <RouterLink
               v-for="item in navItems"
               :key="item.to"
@@ -180,7 +180,7 @@ const navLinkMobile =
 
               <!-- Menu compacto (mobile) -->
               <button
-                class="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 lg:hidden"
+                class="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 xl:hidden"
                 :aria-expanded="mobileOpen"
                 aria-label="Abrir menu de navegação"
                 @click.stop="mobileOpen = !mobileOpen"
@@ -207,7 +207,7 @@ const navLinkMobile =
       <!-- Navegação (mobile, expansível) -->
       <nav
         v-if="auth.user && mobileOpen"
-        class="space-y-1 border-t border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900 lg:hidden"
+        class="space-y-1 border-t border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900 xl:hidden"
       >
         <RouterLink
           v-for="item in navItems"
