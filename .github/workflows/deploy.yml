@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: GitHub Pages (redireciona para o Azure SWA)
 
 on:
   push:
@@ -14,43 +14,24 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+# A produção migrou para o Azure Static Web Apps. O GitHub Pages agora apenas
+# REDIRECIONA (preservando a rota em hash) — não builda mais o app.
+# Reverter: restaurar o build (npm ci + npm run build + upload de ./dist).
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-        run: npm run build
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./dist
-
   deploy:
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload redirect
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./redirect
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

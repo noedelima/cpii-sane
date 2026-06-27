@@ -83,4 +83,6 @@ export const api = {
     request<ListResp<Row>>("GET", "/recibos" + qs(params as Record<string, string | number | null | undefined>)),
   notasFiscais: (params: NFParams) =>
     request<ListResp<Row>>("GET", "/notas-fiscais" + qs(params as Record<string, string | number | null | undefined>)),
+  empenhos: () => request<{ data: Row[] }>("GET", "/empenhos"),
+  grupos: () => request<{ data: Row[] }>("GET", "/grupos"),
 };

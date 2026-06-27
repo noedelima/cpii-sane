@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { api, USE_API } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate } from "@/lib/format";
 import type { Grupo } from "@/types/database";
@@ -19,13 +20,23 @@ const error = ref<string | null>(null);
 async function load() {
   loading.value = true;
   error.value = null;
-  const { data, error: err } = await supabase
-    .from("grupos")
-    .select("*, fornecedores (codigo), itens (count)")
-    .order("numero_arabico");
-  if (err) error.value = err.message;
-  grupos.value = (data as GrupoRow[] | null) ?? [];
-  loading.value = false;
+  try {
+    if (USE_API) {
+      const r = await api.grupos();
+      grupos.value = (r.data as unknown as GrupoRow[]) ?? [];
+    } else {
+      const { data, error: err } = await supabase
+        .from("grupos")
+        .select("*, fornecedores (codigo), itens (count)")
+        .order("numero_arabico");
+      if (err) throw new Error(err.message);
+      grupos.value = (data as GrupoRow[] | null) ?? [];
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Falha ao carregar grupos.";
+  } finally {
+    loading.value = false;
+  }
 }
 
 const statusClasse: Record<string, string> = {

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { api, USE_API } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { carregarLogo } from "@/lib/pdf-ateste";
@@ -33,20 +34,30 @@ const gerandoPdfNes = ref(false);
 async function load() {
   loading.value = true;
   error.value = null;
-  const [e, g, f] = await Promise.all([
-    supabase
-      .from("vw_empenho_saldos")
-      .select("*")
-      .order("data_emissao", { ascending: false })
-      .order("numero"),
-    supabase.from("grupos").select("*").order("numero_arabico"),
-    supabase.from("fornecedores").select("*").order("codigo"),
-  ]);
-  if (e.error) error.value = e.error.message;
-  empenhos.value = (e.data as VwEmpenhoSaldo[] | null) ?? [];
-  grupos.value = (g.data as Grupo[] | null) ?? [];
-  fornecedores.value = (f.data as Fornecedor[] | null) ?? [];
-  loading.value = false;
+  try {
+    if (USE_API) {
+      const e = await api.empenhos();
+      empenhos.value = (e.data as unknown as VwEmpenhoSaldo[]) ?? [];
+    } else {
+      const { data, error: err } = await supabase
+        .from("vw_empenho_saldos")
+        .select("*")
+        .order("data_emissao", { ascending: false })
+        .order("numero");
+      if (err) throw new Error(err.message);
+      empenhos.value = (data as VwEmpenhoSaldo[] | null) ?? [];
+    }
+    const [g, f] = await Promise.all([
+      supabase.from("grupos").select("*").order("numero_arabico"),
+      supabase.from("fornecedores").select("*").order("codigo"),
+    ]);
+    grupos.value = (g.data as Grupo[] | null) ?? [];
+    fornecedores.value = (f.data as Fornecedor[] | null) ?? [];
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "Falha ao carregar empenhos.";
+  } finally {
+    loading.value = false;
+  }
 }
 
 const filtrados = computed(() =>
