@@ -17,7 +17,7 @@ function withAuth(handler) {
     if (!au || !au.user) {
       return json(401, {
         error: "Token inválido ou expirado.",
-        _diag: { node: process.version, authStatus: au && au.status, authBody: au && au.body, authErr: au && au.err },
+        _diag: { node: process.version, authStatus: au && au.status, authBody: au && au.body, authErr: au && au.err, xLen: (request.headers.get("x-sb-token") || "").length, aLen: (request.headers.get("authorization") || "").length },
       });
     }
     const user = au.user;

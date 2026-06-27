@@ -5,6 +5,9 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
 function bearer(request) {
+  // Preferimos o header próprio (o SWA preserva); Authorization fica de fallback.
+  const x = request.headers.get("x-sb-token");
+  if (x) return x.trim();
   const h =
     request.headers.get("authorization") ||
     request.headers.get("Authorization") ||

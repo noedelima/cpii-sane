@@ -13,7 +13,9 @@ const BASE = "/api";
 async function authHeaders(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  // O Azure SWA consome o header Authorization para a própria auth, então o token
+  // do Supabase vai num header próprio (x-sb-token), que o SWA repassa intacto.
+  return token ? { "x-sb-token": token } : {};
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
