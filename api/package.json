@@ -1,0 +1,12 @@
+{
+  "name": "cpii-sane-api",
+  "version": "1.0.0",
+  "description": "Camada de API (Azure Functions) do cpii-sane — servida em /api/* pelo Static Web Apps.",
+  "main": "src/functions/*.js",
+  "scripts": {
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.1"
+  }
+}
