@@ -14,12 +14,7 @@ function withAuth(handler) {
     const token = bearer(request);
     if (!token) return json(401, { error: "Autenticação necessária." });
     const au = await getUser(token);
-    if (!au || !au.user) {
-      return json(401, {
-        error: "Token inválido ou expirado.",
-        _diag: { node: process.version, authStatus: au && au.status, authBody: au && au.body, authErr: au && au.err, xLen: (request.headers.get("x-sb-token") || "").length, aLen: (request.headers.get("authorization") || "").length },
-      });
-    }
+    if (!au || !au.user) return json(401, { error: "Token inválido ou expirado." });
     const user = au.user;
     try {
       return await handler({

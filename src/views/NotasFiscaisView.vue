@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { api, USE_API } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import type { Grupo, NotaFiscal } from "@/types/database";
@@ -26,21 +27,36 @@ let buscaTimer: ReturnType<typeof setTimeout> | null = null;
 async function load() {
   loading.value = true;
   error.value = null;
-  let q = supabase
-    .from("notas_fiscais")
-    .select("*, grupos (nome, numero_romano)", { count: "exact" })
-    .order("data_entrega", { ascending: false })
-    .order("id", { ascending: false })
-    .range(pagina.value * PAGE, pagina.value * PAGE + PAGE - 1);
-  if (grupoFiltro.value !== "") q = q.eq("grupo_id", grupoFiltro.value);
-  if (statusFiltro.value) q = q.eq("status", statusFiltro.value);
-  if (busca.value.trim()) q = q.ilike("numero", `%${busca.value.trim()}%`);
-
-  const { data, count, error: err } = await q;
-  if (err) error.value = err.message;
-  nfs.value = (data as NFRow[] | null) ?? [];
-  total.value = count ?? 0;
-  loading.value = false;
+  try {
+    if (USE_API) {
+      const res = await api.notasFiscais({
+        page: pagina.value,
+        busca: busca.value.trim(),
+        grupo: grupoFiltro.value === "" ? undefined : grupoFiltro.value,
+        status: statusFiltro.value,
+      });
+      nfs.value = (res.data as unknown as NFRow[]) ?? [];
+      total.value = res.total ?? 0;
+    } else {
+      let q = supabase
+        .from("notas_fiscais")
+        .select("*, grupos (nome, numero_romano)", { count: "exact" })
+        .order("data_entrega", { ascending: false })
+        .order("id", { ascending: false })
+        .range(pagina.value * PAGE, pagina.value * PAGE + PAGE - 1);
+      if (grupoFiltro.value !== "") q = q.eq("grupo_id", grupoFiltro.value);
+      if (statusFiltro.value) q = q.eq("status", statusFiltro.value);
+      if (busca.value.trim()) q = q.ilike("numero", `%${busca.value.trim()}%`);
+      const { data, count, error: err } = await q;
+      if (err) throw new Error(err.message);
+      nfs.value = (data as NFRow[] | null) ?? [];
+      total.value = count ?? 0;
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Falha ao carregar notas fiscais.";
+  } finally {
+    loading.value = false;
+  }
 }
 
 async function loadGrupos() {

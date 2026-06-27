@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { api, USE_API } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
 import type { Campus, Grupo, Recibo } from "@/types/database";
 
@@ -29,22 +30,38 @@ let buscaTimer: ReturnType<typeof setTimeout> | null = null;
 async function load() {
   loading.value = true;
   error.value = null;
-  let q = supabase
-    .from("recibos")
-    .select("*, campi (nome), grupos (nome)", { count: "exact" })
-    .order("data_recebimento", { ascending: false })
-    .order("id", { ascending: false })
-    .range(pagina.value * PAGE, pagina.value * PAGE + PAGE - 1);
-  if (busca.value.trim()) q = q.ilike("numero", `%${busca.value.trim()}%`);
-  if (campusFiltro.value !== "") q = q.eq("campus_id", campusFiltro.value);
-  if (grupoFiltro.value !== "") q = q.eq("grupo_id", grupoFiltro.value);
-  if (statusFiltro.value) q = q.eq("status", statusFiltro.value);
-
-  const { data, count, error: err } = await q;
-  if (err) error.value = err.message;
-  recibos.value = (data as ReciboRow[] | null) ?? [];
-  total.value = count ?? 0;
-  loading.value = false;
+  try {
+    if (USE_API) {
+      const res = await api.recibos({
+        page: pagina.value,
+        busca: busca.value.trim(),
+        campus: campusFiltro.value === "" ? undefined : campusFiltro.value,
+        grupo: grupoFiltro.value === "" ? undefined : grupoFiltro.value,
+        status: statusFiltro.value,
+      });
+      recibos.value = (res.data as unknown as ReciboRow[]) ?? [];
+      total.value = res.total ?? 0;
+    } else {
+      let q = supabase
+        .from("recibos")
+        .select("*, campi (nome), grupos (nome)", { count: "exact" })
+        .order("data_recebimento", { ascending: false })
+        .order("id", { ascending: false })
+        .range(pagina.value * PAGE, pagina.value * PAGE + PAGE - 1);
+      if (busca.value.trim()) q = q.ilike("numero", `%${busca.value.trim()}%`);
+      if (campusFiltro.value !== "") q = q.eq("campus_id", campusFiltro.value);
+      if (grupoFiltro.value !== "") q = q.eq("grupo_id", grupoFiltro.value);
+      if (statusFiltro.value) q = q.eq("status", statusFiltro.value);
+      const { data, count, error: err } = await q;
+      if (err) throw new Error(err.message);
+      recibos.value = (data as ReciboRow[] | null) ?? [];
+      total.value = count ?? 0;
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : "Falha ao carregar recibos.";
+  } finally {
+    loading.value = false;
+  }
 }
 
 async function loadRefs() {

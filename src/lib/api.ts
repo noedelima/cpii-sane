@@ -51,7 +51,36 @@ export interface ListResp<T> {
   total: number;
 }
 
+function qs(params: Record<string, string | number | null | undefined>): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== null && v !== undefined && v !== "") p.set(k, String(v));
+  }
+  const s = p.toString();
+  return s ? `?${s}` : "";
+}
+
+export interface RecibosParams {
+  page?: number;
+  busca?: string;
+  campus?: string | number;
+  grupo?: string | number;
+  status?: string;
+}
+export interface NFParams {
+  page?: number;
+  busca?: string;
+  grupo?: string | number;
+  status?: string;
+}
+
+type Row = Record<string, unknown>;
+
 export const api = {
-  me: () => request<{ user: { id: string; email?: string }; perfil: Record<string, unknown> | null }>("GET", "/me"),
+  me: () => request<{ user: { id: string; email?: string }; perfil: Row | null }>("GET", "/me"),
   dashboard: () => request<DashboardResp>("GET", "/dashboard"),
+  recibos: (params: RecibosParams) =>
+    request<ListResp<Row>>("GET", "/recibos" + qs(params as Record<string, string | number | null | undefined>)),
+  notasFiscais: (params: NFParams) =>
+    request<ListResp<Row>>("GET", "/notas-fiscais" + qs(params as Record<string, string | number | null | undefined>)),
 };
