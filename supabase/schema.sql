@@ -1696,6 +1696,9 @@ end $audit_attach$;
 -- para 4 casas decimais; os valores existentes são preservados. A view de saldos
 -- por item depende da coluna, então é derrubada antes do alter e recriada depois.
 drop view if exists public.vw_empenho_item_saldos;
+-- views analiticas (secao 23) tambem dependem de nf_itens.quantidade:
+drop view if exists public.vw_item_abc;
+drop view if exists public.vw_item_consumo;
 alter table public.empenhos_itens alter column quantidade type numeric(14,4);
 alter table public.nf_itens       alter column quantidade type numeric(14,4);
 
@@ -1735,3 +1738,136 @@ left join (
   where empenho_id is not null
   group by empenho_id, item_id
 ) c on c.empenho_id = e.id and c.item_id = ei.item_id;
+
+
+-- =====================================================================
+-- 23. Views analiticas (data mining para planejamento de contratos)
+--     Todas security_invoker: respeitam a RLS do usuario (SANE/admin
+--     veem tudo; campus ve o proprio recorte). Consumo fisico vem de
+--     recibos_itens; o faturado/valor vem de nf_itens; o orcamentario,
+--     de nf_empenhos. "melhor" = maior cobertura entre fisico e faturado
+--     (as duas fontes tem lacunas distintas por grupo). Datas futuras
+--     sao sinalizadas, nao excluidas.
+-- =====================================================================
+
+-- 23.1 Consumo financeiro mensal (NFs), com mes futuro sinalizado
+create or replace view public.vw_consumo_mensal
+with (security_invoker = on) as
+select m.mes, m.nfs, m.valor,
+       (m.mes > date_trunc('month', current_date)::date) as futuro
+from (
+  select date_trunc('month', nf.data_entrega)::date as mes,
+         count(*) as nfs,
+         sum(coalesce(nf.valor_total, 0))::numeric(14,2) as valor
+  from public.notas_fiscais nf
+  where nf.data_entrega is not null
+    and nf.status <> 'cancelado'
+  group by 1
+) m
+order by m.mes;
+
+-- 23.2 Consumo por item x ATA: fisico (recibos) + faturado (NF) + melhor estimativa
+create or replace view public.vw_item_consumo
+with (security_invoker = on) as
+select
+  i.id                                   as item_id,
+  i.descricao,
+  i.grupo_id,
+  g.numero_romano                        as grupo,
+  g.nome                                 as grupo_nome,
+  i.unidade,
+  i.preco_unitario,
+  i.quantidade_ata,
+  coalesce(rf.qtd, 0)::numeric(14,3)     as consumido_fisico,
+  coalesce(nfq.qtd, 0)::numeric(14,4)    as consumido_faturado,
+  greatest(coalesce(rf.qtd, 0), coalesce(nfq.qtd, 0))::numeric(14,4) as consumido_melhor,
+  (coalesce(rf.qtd, 0) * i.preco_unitario)::numeric(14,2) as valor_fisico,
+  coalesce(nfq.valor, 0)::numeric(14,2)  as valor_faturado,
+  greatest(coalesce(rf.qtd, 0) * i.preco_unitario, coalesce(nfq.valor, 0))::numeric(14,2) as valor_melhor,
+  case when i.quantidade_ata > 0
+       then round(100 * coalesce(rf.qtd, 0) / i.quantidade_ata, 1) end as pct_ata_fisico,
+  case when i.quantidade_ata > 0
+       then round(100 * coalesce(nfq.qtd, 0) / i.quantidade_ata, 1) end as pct_ata_faturado,
+  case when i.quantidade_ata > 0
+       then round(100 * greatest(coalesce(rf.qtd, 0), coalesce(nfq.qtd, 0)) / i.quantidade_ata, 1) end as pct_ata_melhor,
+  case when i.quantidade_ata > 0
+       then round(i.quantidade_ata - greatest(coalesce(rf.qtd, 0), coalesce(nfq.qtd, 0)), 3) end as saldo_ata
+from public.itens i
+join public.grupos g on g.id = i.grupo_id
+left join (
+  select ri.item_id, sum(ri.quantidade) as qtd
+  from public.recibos_itens ri
+  join public.recibos r on r.id = ri.recibo_id
+  where r.status <> 'cancelado'
+  group by ri.item_id
+) rf on rf.item_id = i.id
+left join (
+  select ni.item_id,
+         sum(ni.quantidade) as qtd,
+         sum(ni.quantidade * coalesce(ni.valor_unitario, 0)) as valor
+  from public.nf_itens ni
+  group by ni.item_id
+) nfq on nfq.item_id = i.id;
+
+-- 23.3 Curva ABC de itens (por valor "melhor"), com classe A/B/C
+create or replace view public.vw_item_abc
+with (security_invoker = on) as
+with base as (
+  select item_id, descricao, grupo, grupo_nome, unidade,
+         consumido_melhor as qtd, valor_melhor as valor
+  from public.vw_item_consumo
+  where valor_melhor > 0
+)
+select
+  b.item_id, b.descricao, b.grupo, b.grupo_nome, b.unidade, b.qtd, b.valor,
+  round(100 * b.valor / nullif(sum(b.valor) over (), 0), 2) as share_pct,
+  round(100 * sum(b.valor) over (order by b.valor desc
+        rows between unbounded preceding and current row)
+        / nullif(sum(b.valor) over (), 0), 2) as acum_pct,
+  case
+    when 100 * sum(b.valor) over (order by b.valor desc
+         rows between unbounded preceding and current row)
+         / nullif(sum(b.valor) over (), 0) <= 80 then 'A'
+    when 100 * sum(b.valor) over (order by b.valor desc
+         rows between unbounded preceding and current row)
+         / nullif(sum(b.valor) over (), 0) <= 95 then 'B'
+    else 'C'
+  end as classe
+from base b
+order by b.valor desc;
+
+-- 23.4 Consumo estimado por campus (fisico x preco vigente)
+create or replace view public.vw_consumo_campus
+with (security_invoker = on) as
+select
+  ca.id                                  as campus_id,
+  ca.nome                                as campus,
+  count(distinct r.id)                   as recibos,
+  coalesce(sum(ri.quantidade * coalesce(i.preco_unitario, 0)), 0)::numeric(14,2) as valor_estimado
+from public.campi ca
+left join public.recibos r on r.campus_id = ca.id and r.status <> 'cancelado'
+left join public.recibos_itens ri on ri.recibo_id = r.id
+left join public.itens i on i.id = ri.item_id
+group by ca.id, ca.nome
+order by valor_estimado desc;
+
+-- 23.5 Dependencia por fornecedor (orcamento utilizado via nf_empenhos)
+create or replace view public.vw_fornecedor_consumo
+with (security_invoker = on) as
+with base as (
+  select
+    coalesce(f.id, 0)           as fornecedor_id,
+    coalesce(f.codigo, '(sem)') as fornecedor,
+    count(distinct g.id)        as grupos,
+    sum(ne.valor_debitado)::numeric(14,2) as utilizado
+  from public.nf_empenhos ne
+  join public.notas_fiscais nf on nf.id = ne.nf_id
+  join public.grupos g on g.id = nf.grupo_id
+  left join public.fornecedores f on f.id = g.fornecedor_id
+  group by 1, 2
+)
+select
+  b.fornecedor_id, b.fornecedor, b.grupos, b.utilizado,
+  round(100 * b.utilizado / nullif(sum(b.utilizado) over (), 0), 1) as share_pct
+from base b
+order by b.utilizado desc;

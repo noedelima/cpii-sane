@@ -46,6 +46,14 @@ export interface DashboardResp {
   nfsPendentes: number;
 }
 
+export interface AnalyticsResp {
+  mensal: Record<string, unknown>[];
+  itens: Record<string, unknown>[];
+  abc: Record<string, unknown>[];
+  campus: Record<string, unknown>[];
+  fornecedor: Record<string, unknown>[];
+}
+
 export interface ListResp<T> {
   data: T[];
   total: number;
@@ -79,6 +87,7 @@ type Row = Record<string, unknown>;
 export const api = {
   me: () => request<{ user: { id: string; email?: string }; perfil: Row | null }>("GET", "/me"),
   dashboard: () => request<DashboardResp>("GET", "/dashboard"),
+  analytics: () => request<AnalyticsResp>("GET", "/analytics"),
   recibos: (params: RecibosParams) =>
     request<ListResp<Row>>("GET", "/recibos" + qs(params as Record<string, string | number | null | undefined>)),
   notasFiscais: (params: NFParams) =>
