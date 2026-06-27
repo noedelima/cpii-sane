@@ -13,13 +13,14 @@ function withAuth(handler) {
     }
     const token = bearer(request);
     if (!token) return json(401, { error: "Autenticação necessária." });
-    const user = await getUser(token);
-    if (!user) {
+    const au = await getUser(token);
+    if (!au || !au.user) {
       return json(401, {
         error: "Token inválido ou expirado.",
-        _diag: { node: process.version, fetch: typeof fetch, hasUrl: !!SUPABASE_URL, keyLen: SUPABASE_ANON_KEY ? SUPABASE_ANON_KEY.length : 0 },
+        _diag: { node: process.version, authStatus: au && au.status, authBody: au && au.body, authErr: au && au.err },
       });
     }
+    const user = au.user;
     try {
       return await handler({
         request,

@@ -19,10 +19,13 @@ async function getUser(token) {
     const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
+    const body = await res.text();
+    if (!res.ok) return { user: null, status: res.status, body: body.slice(0, 150) };
+    let user = null;
+    try { user = JSON.parse(body); } catch {}
+    return { user, status: res.status };
+  } catch (e) {
+    return { user: null, status: -1, err: String((e && e.message) || e) };
   }
 }
 
