@@ -6,7 +6,8 @@ Sistema web para registro e acompanhamento de **empenhos, notas fiscais e recibo
 
 - **Frontend:** Vue 3 + TypeScript + Vite + Tailwind CSS
 - **Backend:** [Supabase](https://supabase.com) (PostgreSQL gerenciado + Auth + Storage)
-- **Hospedagem:** GitHub Pages (deploy automático via GitHub Actions)
+- **Camada de API:** Azure Functions em `/api/*` (validam o JWT do Supabase e consultam o banco sob a RLS do usuário) — ver `docs/API-CAMADA.md`
+- **Hospedagem:** Azure Static Web Apps (produção); o GitHub Pages redireciona para o novo endereço. Deploy automático via GitHub Actions.
 
 ## Como rodar localmente
 
@@ -49,15 +50,17 @@ A aplicação inicia em http://localhost:5173.
 
 Novos usuários entram como `outros`; o admin promove em **Usuários** no app.
 
-## Deploy
+## Deploy / Produção
 
-O deploy é automático no push para `main`. Para habilitar:
+**Produção:** Azure Static Web Apps — `https://lemon-hill-0dc723c0f.7.azurestaticapps.net`
+(o antigo GitHub Pages redireciona para lá). Deploy automático no push para `main`:
 
-1. Em **Settings > Pages**, escolha **Source: GitHub Actions**
-2. Em **Settings > Secrets and variables > Actions**, crie dois secrets:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-3. Faça push e o workflow `.github/workflows/deploy.yml` publica em https://noedelima.github.io/cpii-sane/
+- `.github/workflows/azure-swa.yml` — builda o app + a API (`/api`) e publica no Azure SWA.
+  Secrets: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `AZURE_STATIC_WEB_APPS_API_TOKEN`;
+  flag `VITE_USE_API=1` (liga a camada de API). App settings do SWA: `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
+- `.github/workflows/deploy.yml` — publica no GitHub Pages apenas um **redirect** para o SWA.
+
+Arquitetura e camada de API: `docs/ADR-001-host-e-backend.md` e `docs/API-CAMADA.md`.
 
 ## Estrutura do projeto
 
