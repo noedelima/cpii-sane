@@ -77,6 +77,16 @@ api/
 | `/api/dashboard` | DashboardView | agregados (vw_grupo_resumo + contagens) | ✅ validado |
 | `/api/recibos` | RecibosView | lista paginada + filtros + relações | ✅ validado |
 | `/api/notas-fiscais` | NotasFiscaisView | lista paginada + filtros + relações | ✅ validado |
+| `/api/rest/{*path}` | **todas as demais** (via supabase-js) | proxy transparente do PostgREST (reads + writes + RPC) | ✅ validado |
+
+### Proxy universal (`/api/rest/*`)
+
+O `src/lib/supabase.ts` injeta um `fetch` custom que, com a flag ligada, **roteia
+toda chamada REST/PostgREST do supabase-js para `/api/rest/*`** (token no
+`x-sb-token`). O proxy repassa ao PostgREST com o token do usuário → **RLS é a
+autoridade**. Não revalida o JWT (o PostgREST já verifica) — sem round-trip extra.
+Resultado: **todas as telas** (e os RPCs: apostilamento, FIFO, merge…) passam pela
+API sem precisar de código por tela. Auth e Storage seguem diretos.
 
 ## Como adicionar um endpoint de leitura (padrão de lista)
 
@@ -108,17 +118,22 @@ Mapa PostgREST: `.eq("x", v)`→`x=eq.v` · `.ilike("x","%t%")`→`x=ilike.*t*` 
 `{count:"exact"}`→`{ count:true }` (lê o total do header Content-Range) ·
 embed `.select("*, rel(col)")`→`select=*,rel(col)`.
 
-## O que falta (mecânico, mesmo padrão)
+## Cobertura: tudo via API
 
-- **Leituras restantes:** EmpenhosView, AtesteView (lista), GruposView,
-  SolicitarNFView (listas e consolidação), AdminView (usuários/log/config), e as
-  telas de detalhe/formulário (carregamento).
-- **Escritas (mutações):** inserts/updates/deletes (recibos, NFs, empenhos,
-  atestes, solicitações, apostilamento, etc.). Padrão: `db(query, { method, body })`
-  ou endpoints dedicados; a RLS valida cada operação. **Sugerido validar
-  fatia a fatia com o usuário**, por mexer em dados.
-- **PDFs:** seguem efêmeros no navegador (jsPDF); a API pode, no futuro, cunhar
-  URLs assinadas (inclusive para o R2).
+Com o proxy `/api/rest/*`, **todas as telas** (leituras, escritas e RPC) já passam
+pela camada de API quando `VITE_USE_API=1` — validado no SWA: Dashboard, Recibos,
+NFs, Empenhos, Grupos (reads) e PATCH em recibos (write). Telas de
+detalhe/formulário e RPCs roteiam pelo proxy automaticamente.
+
+### Pendências (refinamento — não bloqueia)
+
+- **Storage** (upload de PDFs) ainda fala **direto** com o Supabase (funciona pela
+  origem do SWA). Um proxy `/api/storage/*` é opcional.
+- **Endpoints dedicados:** trocar chamadas do proxy por endpoints específicos
+  (como `/api/dashboard`) onde quiser **desacoplar do schema** ou pôr regra de
+  negócio/observabilidade. O proxy é o caminho universal; os específicos são a
+  evolução natural.
+- **PDFs** seguem efêmeros no navegador (jsPDF).
 
 ## Reverter / desligar
 
