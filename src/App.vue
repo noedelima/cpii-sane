@@ -108,7 +108,7 @@ const navLinkMobile =
             <span class="leading-tight">
               <span class="block text-lg font-bold tracking-tight text-cpii-700 dark:text-gold-300">SANE</span>
               <span class="hidden text-[11px] text-slate-500 dark:text-slate-400 sm:block xl:hidden">
-                Controle de Empenhos e NFs · DECOF/SENG
+                Controle de Empenhos e NFs · SANE
               </span>
             </span>
           </RouterLink>
