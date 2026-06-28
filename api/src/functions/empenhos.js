@@ -1,5 +1,5 @@
 const { app } = require("@azure/functions");
-const { json, withAuth } = require("../shared/http");
+const { json, withAuth, qStr } = require("../shared/http");
 
 // Lista de empenhos com saldos (vw_empenho_saldos). Os filtros (busca/status) são
 // aplicados no cliente, então devolvemos a lista completa ordenada. RLS do usuário.
