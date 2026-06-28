@@ -302,10 +302,10 @@ onMounted(load);
         <template v-if="!mostrarExcluidos">
           <button type="button" class="btn-secondary" :class="{ 'ring-2 ring-cpii-400': painelGrupo }" @click="painelGrupo = !painelGrupo">Saldo por grupo</button>
           <button type="button" class="btn-secondary" :class="{ 'ring-2 ring-cpii-400': modoSelecao }" @click="toggleModoSelecao">PDF de saldos por NE</button>
-          <button type="button" class="btn-ghost" @click="alternarModo()">Ver excluídos</button>
+          <button type="button" class="btn-secondary" @click="alternarModo()">Ver excluídos</button>
           <RouterLink to="/empenhos/novo" class="btn-primary">+ Novo empenho</RouterLink>
         </template>
-        <button v-else type="button" class="btn-ghost" @click="alternarModo()">← Ver ativos</button>
+        <button v-else type="button" class="btn-secondary" @click="alternarModo()">← Ver ativos</button>
       </div>
     </div>
 

@@ -154,7 +154,7 @@ onMounted(async () => {
         <span v-if="mostrarExcluidos" class="font-normal text-slate-400 dark:text-slate-500">· quarentena</span>
       </h1>
       <div class="flex items-center gap-2">
-        <button v-if="podeGerenciar" class="btn-ghost" @click="alternarModo()">
+        <button v-if="podeGerenciar" class="btn-secondary" @click="alternarModo()">
           {{ mostrarExcluidos ? "← Ver ativos" : "Ver excluídos" }}
         </button>
         <RouterLink v-if="!mostrarExcluidos" to="/recibos/novo" class="btn-primary">+ Novo recibo</RouterLink>
