@@ -74,12 +74,14 @@ export interface RecibosParams {
   campus?: string | number;
   grupo?: string | number;
   status?: string;
+  excluidos?: number;
 }
 export interface NFParams {
   page?: number;
   busca?: string;
   grupo?: string | number;
   status?: string;
+  excluidos?: number;
 }
 
 type Row = Record<string, unknown>;
@@ -93,6 +95,7 @@ export const api = {
     request<ListResp<Row>>("GET", "/recibos" + qs(params as Record<string, string | number | null | undefined>)),
   notasFiscais: (params: NFParams) =>
     request<ListResp<Row>>("GET", "/notas-fiscais" + qs(params as Record<string, string | number | null | undefined>)),
-  empenhos: () => request<{ data: Row[] }>("GET", "/empenhos"),
+  empenhos: (p?: { excluidos?: number }) =>
+    request<{ data: Row[] }>("GET", "/empenhos" + qs((p ?? {}) as Record<string, string | number | null | undefined>)),
   grupos: () => request<{ data: Row[] }>("GET", "/grupos"),
 };

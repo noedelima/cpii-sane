@@ -14,12 +14,14 @@ app.http("notas-fiscais", {
     const busca = qStr(request, "busca");
     const grupo = qStr(request, "grupo");
     const status = qStr(request, "status");
+    const excluidos = qStr(request, "excluidos");
 
     let q = "notas_fiscais?select=*,grupos(nome,numero_romano)&order=data_entrega.desc,id.desc";
     q += `&limit=${PAGE}&offset=${page * PAGE}`;
     if (busca) q += `&numero=ilike.*${encodeURIComponent(busca)}*`;
     if (grupo) q += `&grupo_id=eq.${encodeURIComponent(grupo)}`;
     if (status) q += `&status=eq.${encodeURIComponent(status)}`;
+    q += excluidos ? "&deleted_at=not.is.null" : "&deleted_at=is.null";
 
     const r = await db(q, { count: true });
     if (!r.ok) return json(500, { error: r.error });

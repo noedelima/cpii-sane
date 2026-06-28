@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import { api, USE_API } from "@/lib/api";
@@ -8,10 +8,13 @@ import { fmtDate, fmtMoney } from "@/lib/format";
 import { carregarLogo } from "@/lib/pdf-ateste";
 import { montarPdfEmpenhoSaldos, type EmpenhoSaldoBloco } from "@/lib/pdf-empenho-saldos";
 import { getCabecalho } from "@/lib/config";
+import { useQuarentena } from "@/lib/useQuarentena";
 import type { Fornecedor, Grupo, VwEmpenhoItemSaldo, VwEmpenhoSaldo } from "@/types/database";
 
+type EmpRow = VwEmpenhoSaldo & { deleted_at?: string | null; deleted_by_nome?: string | null };
+
 const auth = useAuthStore();
-const empenhos = ref<VwEmpenhoSaldo[]>([]);
+const empenhos = ref<EmpRow[]>([]);
 const grupos = ref<Grupo[]>([]);
 const fornecedores = ref<Fornecedor[]>([]);
 const loading = ref(true);
@@ -31,21 +34,41 @@ const modoSelecao = ref(false);
 const nesSelecionadas = ref<Set<number>>(new Set());
 const gerandoPdfNes = ref(false);
 
+// quarentena (soft-delete)
+const {
+  mostrarExcluidos,
+  confirmando,
+  processando,
+  erro: erroQuar,
+  qtd: qtdSel,
+  podeGerenciar,
+  selecionado,
+  toggle,
+  definirTodos,
+  limpar,
+  alternarModo,
+  excluir,
+  restaurar,
+  diasRestantes,
+} = useQuarentena("empenhos");
+
 async function load() {
   loading.value = true;
   error.value = null;
   try {
     if (USE_API) {
-      const e = await api.empenhos();
-      empenhos.value = (e.data as unknown as VwEmpenhoSaldo[]) ?? [];
+      const e = await api.empenhos({ excluidos: mostrarExcluidos.value ? 1 : undefined });
+      empenhos.value = (e.data as unknown as EmpRow[]) ?? [];
     } else {
-      const { data, error: err } = await supabase
+      let q = supabase
         .from("vw_empenho_saldos")
         .select("*")
         .order("data_emissao", { ascending: false })
         .order("numero");
+      q = mostrarExcluidos.value ? q.not("deleted_at", "is", null) : q.is("deleted_at", null);
+      const { data, error: err } = await q;
       if (err) throw new Error(err.message);
-      empenhos.value = (data as VwEmpenhoSaldo[] | null) ?? [];
+      empenhos.value = (data as EmpRow[] | null) ?? [];
     }
     const [g, f] = await Promise.all([
       supabase.from("grupos").select("*").order("numero_arabico"),
@@ -72,6 +95,34 @@ const filtrados = computed(() =>
     return true;
   })
 );
+
+const idsPagina = computed(() => filtrados.value.map((e) => e.id));
+const todosSelecionados = computed(
+  () => idsPagina.value.length > 0 && idsPagina.value.every((id) => selecionado(id))
+);
+function alternarTodos() {
+  definirTodos(idsPagina.value, !todosSelecionados.value);
+}
+async function confirmarExclusao() {
+  if (await excluir()) await load();
+}
+async function confirmarRestauracao() {
+  if (await restaurar()) await load();
+}
+function abrirConfirmacao() {
+  confirmando.value = true;
+}
+function fecharConfirmacao() {
+  confirmando.value = false;
+}
+
+watch(mostrarExcluidos, () => {
+  painelGrupo.value = false;
+  modoSelecao.value = false;
+  nesSelecionadas.value = new Set();
+  limpar();
+  void load();
+});
 
 const totais = computed(() => {
   const t = { liquido: 0, utilizado: 0, saldo: 0 };
@@ -161,6 +212,7 @@ function toggleNe(id: number) {
 function toggleModoSelecao() {
   modoSelecao.value = !modoSelecao.value;
   if (!modoSelecao.value) nesSelecionadas.value = new Set();
+  else limpar();
 }
 
 async function gerarPdfNes() {
@@ -242,26 +294,23 @@ onMounted(load);
 <template>
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-      <h1 class="text-2xl font-semibold">Empenhos</h1>
+      <h1 class="text-2xl font-semibold">
+        Empenhos
+        <span v-if="mostrarExcluidos" class="font-normal text-slate-400 dark:text-slate-500">· quarentena</span>
+      </h1>
       <div v-if="auth.isSane" class="flex flex-wrap gap-2">
-        <button
-          type="button"
-          class="btn-secondary"
-          :class="{ 'ring-2 ring-cpii-400': painelGrupo }"
-          @click="painelGrupo = !painelGrupo"
-        >Saldo por grupo</button>
-        <button
-          type="button"
-          class="btn-secondary"
-          :class="{ 'ring-2 ring-cpii-400': modoSelecao }"
-          @click="toggleModoSelecao"
-        >PDF de saldos por NE</button>
-        <RouterLink to="/empenhos/novo" class="btn-primary">+ Novo empenho</RouterLink>
+        <template v-if="!mostrarExcluidos">
+          <button type="button" class="btn-secondary" :class="{ 'ring-2 ring-cpii-400': painelGrupo }" @click="painelGrupo = !painelGrupo">Saldo por grupo</button>
+          <button type="button" class="btn-secondary" :class="{ 'ring-2 ring-cpii-400': modoSelecao }" @click="toggleModoSelecao">PDF de saldos por NE</button>
+          <button type="button" class="btn-ghost" @click="alternarModo()">Ver excluídos</button>
+          <RouterLink to="/empenhos/novo" class="btn-primary">+ Novo empenho</RouterLink>
+        </template>
+        <button v-else type="button" class="btn-ghost" @click="alternarModo()">← Ver ativos</button>
       </div>
     </div>
 
     <!-- req 10: saldo total por item de um grupo -->
-    <div v-if="painelGrupo" class="card p-5 mb-4 space-y-4">
+    <div v-if="painelGrupo && !mostrarExcluidos" class="card p-5 mb-4 space-y-4">
       <div class="flex flex-wrap items-end gap-3">
         <div class="grow max-w-md">
           <label class="label">Grupo</label>
@@ -304,18 +353,11 @@ onMounted(load);
           </tbody>
         </table>
       </div>
-      <p v-else-if="grupoSaldoId" class="text-sm text-slate-500 dark:text-slate-400">
-        Nenhum item empenhado neste grupo.
-      </p>
+      <p v-else-if="grupoSaldoId" class="text-sm text-slate-500 dark:text-slate-400">Nenhum item empenhado neste grupo.</p>
     </div>
 
     <div class="flex flex-wrap gap-3 mb-4">
-      <input
-        v-model="busca"
-        type="search"
-        placeholder="Buscar por número ou fornecedor…"
-        class="input max-w-xs"
-      />
+      <input v-model="busca" type="search" placeholder="Buscar por número ou fornecedor…" class="input max-w-xs" />
       <select v-model="statusFiltro" class="input max-w-[12rem]">
         <option value="">Todos os status</option>
         <option value="ativo">Ativo</option>
@@ -325,8 +367,8 @@ onMounted(load);
       </select>
     </div>
 
-    <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300 mb-4">
-      {{ error }}
+    <div v-if="error || erroQuar" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300 mb-4">
+      {{ error || erroQuar }}
     </div>
 
     <!-- barra de ação do modo seleção (req 11) -->
@@ -334,23 +376,37 @@ onMounted(load);
       v-if="modoSelecao"
       class="flex flex-wrap items-center justify-between gap-2 mb-3 rounded-md border border-cpii-200 dark:border-cpii-900 bg-cpii-50 dark:bg-cpii-950/40 px-4 py-2"
     >
-      <span class="text-sm text-slate-700 dark:text-slate-200">
-        {{ nesSelecionadas.size }} NE(s) selecionada(s) — marque as caixas na tabela.
-      </span>
+      <span class="text-sm text-slate-700 dark:text-slate-200">{{ nesSelecionadas.size }} NE(s) selecionada(s) — marque as caixas na tabela.</span>
       <button class="btn-primary" :disabled="gerandoPdfNes || !nesSelecionadas.size" @click="gerarPdfNes">
         {{ gerandoPdfNes ? "Gerando…" : "Gerar PDF de saldos" }}
       </button>
     </div>
 
+    <!-- barra de ação da quarentena -->
+    <div
+      v-if="podeGerenciar && !modoSelecao && qtdSel"
+      class="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-cpii-600/30 bg-cpii-50 px-4 py-2.5 text-sm dark:border-cpii-500/30 dark:bg-cpii-900/30"
+    >
+      <span class="font-medium text-cpii-800 dark:text-cpii-100">{{ qtdSel }} selecionado(s)</span>
+      <div class="flex-1"></div>
+      <button v-if="!mostrarExcluidos" class="btn bg-red-600 text-white hover:bg-red-700" @click="abrirConfirmacao()">Excluir selecionados</button>
+      <button v-else class="btn-primary" :disabled="processando" @click="confirmarRestauracao">
+        {{ processando ? "Restaurando…" : "Restaurar selecionados" }}
+      </button>
+      <button class="btn-ghost" @click="limpar()">Limpar</button>
+    </div>
+
     <div class="card overflow-x-auto">
       <div v-if="loading" class="p-6 text-center text-slate-500 dark:text-slate-400">Carregando…</div>
       <div v-else-if="!filtrados.length" class="p-6 text-center text-slate-500 dark:text-slate-400">
-        Nenhum empenho encontrado.
+        {{ mostrarExcluidos ? "Nenhum empenho na quarentena." : "Nenhum empenho encontrado." }}
       </div>
       <table v-else class="w-full text-sm min-w-[52rem]">
         <thead class="bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs">
           <tr>
-            <th v-if="modoSelecao" class="px-3 py-2 w-10"></th>
+            <th v-if="modoSelecao || podeGerenciar" class="px-3 py-2 w-10">
+              <input v-if="podeGerenciar && !modoSelecao" type="checkbox" :checked="todosSelecionados" class="accent-cpii-600" @change="alternarTodos" />
+            </th>
             <th class="px-4 py-2 text-left">Número</th>
             <th class="px-4 py-2 text-left">Emissão</th>
             <th class="px-4 py-2 text-left">Fornecedor</th>
@@ -358,7 +414,8 @@ onMounted(load);
             <th class="px-4 py-2 text-right">Utilizado</th>
             <th class="px-4 py-2 text-right">Saldo</th>
             <th class="px-4 py-2 text-left">Status</th>
-            <th class="px-4 py-2 text-left">Autor</th>
+            <th v-if="mostrarExcluidos" class="px-4 py-2 text-left">Excluído</th>
+            <th v-else class="px-4 py-2 text-left">Autor</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -369,43 +426,36 @@ onMounted(load);
             :class="{ 'cursor-pointer': modoSelecao }"
             @click="modoSelecao && toggleNe(e.id)"
           >
-            <td v-if="modoSelecao" class="px-3 py-2">
-              <input
-                type="checkbox"
-                class="rounded border-slate-300 dark:border-slate-600 pointer-events-none"
-                :checked="nesSelecionadas.has(e.id)"
-              />
+            <td v-if="modoSelecao || podeGerenciar" class="px-3 py-2">
+              <input v-if="modoSelecao" type="checkbox" class="rounded border-slate-300 dark:border-slate-600 pointer-events-none" :checked="nesSelecionadas.has(e.id)" />
+              <input v-else type="checkbox" class="accent-cpii-600" :checked="selecionado(e.id)" @change="toggle(e.id)" />
             </td>
             <td class="px-4 py-2 font-medium">
-              <RouterLink
-                v-if="auth.isSane && !modoSelecao"
-                :to="`/empenhos/${e.id}`"
-                class="text-cpii-600 dark:text-cpii-300 hover:underline"
-              >{{ e.numero }}</RouterLink>
+              <RouterLink v-if="auth.isSane && !modoSelecao" :to="`/empenhos/${e.id}`" class="text-cpii-600 dark:text-cpii-300 hover:underline">{{ e.numero }}</RouterLink>
               <template v-else>{{ e.numero }}</template>
             </td>
             <td class="px-4 py-2 whitespace-nowrap">{{ fmtDate(e.data_emissao) }}</td>
             <td class="px-4 py-2">{{ e.fornecedor ?? "—" }}</td>
             <td class="px-4 py-2 text-right tabular-nums">{{ fmtMoney(e.valor_liquido) }}</td>
             <td class="px-4 py-2 text-right tabular-nums">{{ fmtMoney(e.utilizado) }}</td>
-            <td
-              class="px-4 py-2 text-right tabular-nums font-medium"
-              :class="Number(e.saldo) < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'"
-            >{{ fmtMoney(e.saldo) }}</td>
+            <td class="px-4 py-2 text-right tabular-nums font-medium" :class="Number(e.saldo) < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'">{{ fmtMoney(e.saldo) }}</td>
             <td class="px-4 py-2">
-              <span
-                class="inline-block rounded-full border px-2 py-0.5 text-xs capitalize"
-                :class="statusClasse[e.status] ?? 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
-              >{{ e.status }}</span>
+              <span class="inline-block rounded-full border px-2 py-0.5 text-xs capitalize" :class="statusClasse[e.status] ?? 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'">{{ e.status }}</span>
             </td>
-            <td class="px-4 py-2 text-slate-600 dark:text-slate-300" :title="`Cadastrado em ${dataHora(e.created_at)}`">
+            <td v-if="mostrarExcluidos" class="px-4 py-2 whitespace-nowrap text-slate-600 dark:text-slate-300">
+              <span :title="`Excluído em ${dataHora(e.deleted_at ?? null)} por ${e.deleted_by_nome ?? '—'}`">{{ e.deleted_by_nome ?? "—" }}</span>
+              <span class="ml-1 text-xs" :class="diasRestantes(e.deleted_at) <= 7 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">
+                · expira em {{ diasRestantes(e.deleted_at) }}d
+              </span>
+            </td>
+            <td v-else class="px-4 py-2 text-slate-600 dark:text-slate-300" :title="`Cadastrado em ${dataHora(e.created_at)}`">
               {{ e.criado_por_nome ?? "—" }}
             </td>
           </tr>
         </tbody>
         <tfoot class="bg-slate-50 dark:bg-slate-700/50 font-medium">
           <tr>
-            <td v-if="modoSelecao"></td>
+            <td v-if="modoSelecao || podeGerenciar"></td>
             <td class="px-4 py-2" colspan="3">Totais ({{ filtrados.length }} empenhos)</td>
             <td class="px-4 py-2 text-right tabular-nums">{{ fmtMoney(totais.liquido) }}</td>
             <td class="px-4 py-2 text-right tabular-nums">{{ fmtMoney(totais.utilizado) }}</td>
@@ -415,6 +465,24 @@ onMounted(load);
           </tr>
         </tfoot>
       </table>
+    </div>
+
+    <!-- Modal: confirmar exclusão -->
+    <div v-if="confirmando" class="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 dark:bg-black/70 px-4" @click.self="fecharConfirmacao()">
+      <div class="card w-full max-w-md p-5 space-y-4">
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Excluir {{ qtdSel }} empenho(s)?</h2>
+        <p class="text-sm text-slate-600 dark:text-slate-300">
+          Os empenhos vão para a <strong>quarentena</strong> e podem ser restaurados por <strong>30 dias</strong>; depois são
+          apagados em definitivo. Esta ação fica registrada no log.
+        </p>
+        <p v-if="erroQuar" class="text-sm text-red-600 dark:text-red-400">{{ erroQuar }}</p>
+        <div class="flex justify-end gap-2">
+          <button class="btn-ghost" @click="fecharConfirmacao()">Cancelar</button>
+          <button class="btn bg-red-600 text-white hover:bg-red-700" :disabled="processando" @click="confirmarExclusao">
+            {{ processando ? "Excluindo…" : "Excluir" }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

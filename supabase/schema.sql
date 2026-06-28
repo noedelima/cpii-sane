@@ -561,12 +561,15 @@ select
   (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao)::numeric(14,2) as valor_liquido,
   coalesce(d.debitado, 0)::numeric(14,2) as utilizado,
   (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao - coalesce(d.debitado, 0))::numeric(14,2) as saldo,
-  e.criado_por_nome, e.created_at
+  e.criado_por_nome, e.created_at,
+  e.deleted_at, e.deleted_by_nome
 from public.empenhos e
 left join public.fornecedores f on f.id = e.fornecedor_id
 left join (
   select empenho_id, sum(valor_debitado) as debitado
-  from public.nf_empenhos group by empenho_id
+  from public.nf_empenhos
+  join public.notas_fiscais nf on nf.id = nf_empenhos.nf_id and nf.deleted_at is null
+  group by empenho_id
 ) d on d.empenho_id = e.id;
 
 create or replace view public.vw_grupo_resumo
@@ -582,17 +585,19 @@ from public.grupos g
 left join public.fornecedores f on f.id = g.fornecedor_id
 left join (
   select grupo_id, sum(valor_alocado) as alocado
-  from public.empenhos_grupos group by grupo_id
+  from public.empenhos_grupos
+  join public.empenhos e on e.id = empenhos_grupos.empenho_id and e.deleted_at is null
+  group by grupo_id
 ) a on a.grupo_id = g.id
 left join (
   select nf.grupo_id, sum(ne.valor_debitado) as utilizado
   from public.nf_empenhos ne
-  join public.notas_fiscais nf on nf.id = ne.nf_id
+  join public.notas_fiscais nf on nf.id = ne.nf_id and nf.deleted_at is null
   group by nf.grupo_id
 ) u on u.grupo_id = g.id
 left join (
   select grupo_id, count(*) as qtd_nfs
-  from public.notas_fiscais group by grupo_id
+  from public.notas_fiscais where deleted_at is null group by grupo_id
 ) n on n.grupo_id = g.id;
 
 -- =========================================================
@@ -1195,6 +1200,7 @@ left join (
          sum(quantidade)                              as consumido_qtd,
          sum(quantidade * coalesce(valor_unitario, 0)) as consumido_valor
   from public.nf_itens
+  join public.notas_fiscais nf on nf.id = nf_itens.nf_id and nf.deleted_at is null
   where empenho_id is not null
   group by empenho_id, item_id
 ) c on c.empenho_id = e.id and c.item_id = ei.item_id;
@@ -1736,6 +1742,7 @@ left join (
          sum(quantidade)                              as consumido_qtd,
          sum(quantidade * coalesce(valor_unitario, 0)) as consumido_valor
   from public.nf_itens
+  join public.notas_fiscais nf on nf.id = nf_itens.nf_id and nf.deleted_at is null
   where empenho_id is not null
   group by empenho_id, item_id
 ) c on c.empenho_id = e.id and c.item_id = ei.item_id;
@@ -1763,6 +1770,7 @@ from (
   from public.notas_fiscais nf
   where nf.data_entrega is not null
     and nf.status <> 'cancelado'
+    and nf.deleted_at is null
   group by 1
 ) m
 order by m.mes;
@@ -1799,7 +1807,7 @@ left join (
   select ri.item_id, sum(ri.quantidade) as qtd
   from public.recibos_itens ri
   join public.recibos r on r.id = ri.recibo_id
-  where r.status <> 'cancelado'
+  where r.status <> 'cancelado' and r.deleted_at is null
   group by ri.item_id
 ) rf on rf.item_id = i.id
 left join (
@@ -1807,6 +1815,7 @@ left join (
          sum(ni.quantidade) as qtd,
          sum(ni.quantidade * coalesce(ni.valor_unitario, 0)) as valor
   from public.nf_itens ni
+  join public.notas_fiscais nf on nf.id = ni.nf_id and nf.deleted_at is null
   group by ni.item_id
 ) nfq on nfq.item_id = i.id;
 
@@ -1846,7 +1855,7 @@ select
   count(distinct r.id)                   as recibos,
   coalesce(sum(ri.quantidade * coalesce(i.preco_unitario, 0)), 0)::numeric(14,2) as valor_estimado
 from public.campi ca
-left join public.recibos r on r.campus_id = ca.id and r.status <> 'cancelado'
+left join public.recibos r on r.campus_id = ca.id and r.status <> 'cancelado' and r.deleted_at is null
 left join public.recibos_itens ri on ri.recibo_id = r.id
 left join public.itens i on i.id = ri.item_id
 group by ca.id, ca.nome
@@ -1862,7 +1871,7 @@ with base as (
     count(distinct g.id)        as grupos,
     sum(ne.valor_debitado)::numeric(14,2) as utilizado
   from public.nf_empenhos ne
-  join public.notas_fiscais nf on nf.id = ne.nf_id
+  join public.notas_fiscais nf on nf.id = ne.nf_id and nf.deleted_at is null
   join public.grupos g on g.id = nf.grupo_id
   left join public.fornecedores f on f.id = g.fornecedor_id
   group by 1, 2
@@ -1881,12 +1890,12 @@ with (security_invoker = on) as
 with per as (
   select
     least(
-      coalesce((select min(data_recebimento) from public.recibos where status <> 'cancelado'), current_date),
-      coalesce((select min(data_entrega) from public.notas_fiscais where status <> 'cancelado' and data_entrega <= current_date), current_date)
+      coalesce((select min(data_recebimento) from public.recibos where status <> 'cancelado' and deleted_at is null), current_date),
+      coalesce((select min(data_entrega) from public.notas_fiscais where status <> 'cancelado' and deleted_at is null and data_entrega <= current_date), current_date)
     ) as inicio,
     greatest(
-      coalesce((select max(data_recebimento) from public.recibos where status <> 'cancelado' and data_recebimento <= current_date), current_date),
-      coalesce((select max(data_entrega) from public.notas_fiscais where status <> 'cancelado' and data_entrega <= current_date), current_date)
+      coalesce((select max(data_recebimento) from public.recibos where status <> 'cancelado' and deleted_at is null and data_recebimento <= current_date), current_date),
+      coalesce((select max(data_entrega) from public.notas_fiscais where status <> 'cancelado' and deleted_at is null and data_entrega <= current_date), current_date)
     ) as fim
 ),
 base as (
@@ -1906,3 +1915,54 @@ select
 from public.vw_item_consumo ic
 cross join base b
 order by ic.grupo, ic.descricao;
+
+
+-- =====================================================================
+-- 24. Soft-delete / quarentena (30 dias) — notas_fiscais, recibos, empenhos
+--     Exclusao = marcar deleted_at (reversivel). Um job diario (pg_cron)
+--     apaga de vez o que passou de 30 dias. As views da secao 23 e os
+--     resumos ignoram linhas com deleted_at.
+-- =====================================================================
+alter table public.notas_fiscais add column if not exists deleted_at      timestamptz;
+alter table public.notas_fiscais add column if not exists deleted_by      uuid references auth.users(id) on delete set null;
+alter table public.notas_fiscais add column if not exists deleted_by_nome text;
+alter table public.recibos       add column if not exists deleted_at      timestamptz;
+alter table public.recibos       add column if not exists deleted_by      uuid references auth.users(id) on delete set null;
+alter table public.recibos       add column if not exists deleted_by_nome text;
+alter table public.empenhos      add column if not exists deleted_at      timestamptz;
+alter table public.empenhos      add column if not exists deleted_by      uuid references auth.users(id) on delete set null;
+alter table public.empenhos      add column if not exists deleted_by_nome text;
+
+create index if not exists idx_nf_deleted      on public.notas_fiscais (deleted_at) where deleted_at is not null;
+create index if not exists idx_recibo_deleted  on public.recibos       (deleted_at) where deleted_at is not null;
+create index if not exists idx_empenho_deleted on public.empenhos      (deleted_at) where deleted_at is not null;
+
+-- Expurgo definitivo: remove o que esta ha mais de 30 dias na quarentena.
+create or replace function public.purga_quarentena()
+returns integer language plpgsql security definer set search_path = public as $fn$
+declare n integer := 0; d integer;
+begin
+  delete from public.notas_fiscais where deleted_at is not null and deleted_at < now() - interval '30 days';
+  get diagnostics d = row_count; n := n + d;
+  delete from public.recibos       where deleted_at is not null and deleted_at < now() - interval '30 days';
+  get diagnostics d = row_count; n := n + d;
+  delete from public.empenhos      where deleted_at is not null and deleted_at < now() - interval '30 days';
+  get diagnostics d = row_count; n := n + d;
+  return n;
+end $fn$;
+
+-- pg_cron (se disponivel no projeto): agenda diaria 03:17 UTC. Idempotente.
+do $cron$
+begin
+  begin
+    create extension if not exists pg_cron;
+  exception when others then
+    raise notice 'pg_cron indisponivel (%). Expurgo ficara manual via select public.purga_quarentena().', sqlerrm;
+  end;
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    if exists (select 1 from cron.job where jobname = 'purga_quarentena_diaria') then
+      perform cron.unschedule('purga_quarentena_diaria');
+    end if;
+    perform cron.schedule('purga_quarentena_diaria', '17 3 * * *', 'select public.purga_quarentena()');
+  end if;
+end $cron$;

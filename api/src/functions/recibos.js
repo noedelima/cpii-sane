@@ -15,6 +15,7 @@ app.http("recibos", {
     const campus = qStr(request, "campus");
     const grupo = qStr(request, "grupo");
     const status = qStr(request, "status");
+    const excluidos = qStr(request, "excluidos");
 
     let q = "recibos?select=*,campi(nome),grupos(nome)&order=data_recebimento.desc,id.desc";
     q += `&limit=${PAGE}&offset=${page * PAGE}`;
@@ -22,6 +23,7 @@ app.http("recibos", {
     if (campus) q += `&campus_id=eq.${encodeURIComponent(campus)}`;
     if (grupo) q += `&grupo_id=eq.${encodeURIComponent(grupo)}`;
     if (status) q += `&status=eq.${encodeURIComponent(status)}`;
+    q += excluidos ? "&deleted_at=not.is.null" : "&deleted_at=is.null";
 
     const r = await db(q, { count: true });
     if (!r.ok) return json(500, { error: r.error });
