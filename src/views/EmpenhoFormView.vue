@@ -374,66 +374,33 @@ async function salvar() {
       link_pdf: linkPdf.value,
     };
 
-    let id = empenhoId.value;
-    if (editMode.value && id) {
-      const { error: err } = await supabase.from("empenhos").update(payload).eq("id", id);
-      if (err) throw err;
-    } else {
-      const { data, error: err } = await supabase
-        .from("empenhos")
-        .insert({
-          ...payload,
-          criado_por: auth.user?.id ?? null,
-          criado_por_nome: auth.perfil?.nome ?? null,
-        })
-        .select("id")
-        .single();
-      if (err || !data) throw err ?? new Error("Falha ao criar empenho.");
-      id = (data as { id: number }).id;
-    }
-
-    for (const l of linhasValidas) {
-      const linha = {
-        empenho_id: id,
-        grupo_id: l.grupo_id,
-        valor_alocado: l.valor_alocado ?? 0,
-        percentual: l.percentual,
-        observacoes: l.observacoes,
-      };
-      if (l.id) {
-        const { error: err } = await supabase
-          .from("empenhos_grupos")
-          .update(linha)
-          .eq("id", l.id);
-        if (err) throw err;
-      } else {
-        const { error: err } = await supabase.from("empenhos_grupos").insert(linha);
-        if (err) throw err;
-      }
-    }
-
-    for (const l of empItens.value) {
-      if (!l.item_id) continue;
-      const q = Number(l.quantidade);
-      if (!Number.isFinite(q) || q < 0) continue;
-      if (!l.id && q <= 0) continue; // não cria item novo zerado (mas permite zerar um existente)
-      const linha = {
-        empenho_id: id,
+    const grupos = linhasValidas.map((l) => ({
+      id: l.id ?? null,
+      grupo_id: l.grupo_id,
+      valor_alocado: l.valor_alocado ?? 0,
+      percentual: l.percentual,
+      observacoes: l.observacoes,
+    }));
+    const itens = empItens.value
+      .filter((l) => l.item_id && Number.isFinite(Number(l.quantidade)) && Number(l.quantidade) >= 0)
+      .map((l) => ({
+        id: l.id ?? null,
         item_id: l.item_id,
-        quantidade: q,
+        quantidade: Number(l.quantidade),
         valor_unitario: l.valor_unitario,
-      };
-      if (l.id) {
-        const { error: err } = await supabase
-          .from("empenhos_itens")
-          .update(linha)
-          .eq("id", l.id);
-        if (err) throw err;
-      } else {
-        const { error: err } = await supabase.from("empenhos_itens").insert(linha);
-        if (err) throw err;
-      }
-    }
+      }));
+
+    // Salvamento atômico: empenho + grupos + itens em UMA transação (RPC).
+    // Se qualquer passo falhar, tudo é revertido (nunca grava reforço sem os itens).
+    const { error: err } = await supabase.rpc("salvar_empenho", {
+      p_id: empenhoId.value,
+      p_empenho: payload,
+      p_grupos: grupos,
+      p_itens: itens,
+      p_criado_por: editMode.value ? null : auth.user?.id ?? null,
+      p_criado_por_nome: editMode.value ? null : auth.perfil?.nome ?? null,
+    });
+    if (err) throw err;
 
     router.push("/empenhos");
   } catch (e) {

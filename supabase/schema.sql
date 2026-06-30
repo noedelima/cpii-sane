@@ -1966,3 +1966,114 @@ begin
     perform cron.schedule('purga_quarentena_diaria', '17 3 * * *', 'select public.purga_quarentena()');
   end if;
 end $cron$;
+
+
+-- =====================================================================
+-- 25. Salvamento atomico de empenho (empenho + grupos + itens em 1 transacao)
+--     Evita commit parcial (ex.: reforco gravado sem atualizar os itens).
+--     security invoker => a RLS de cada tabela continua valendo (so sane/admin).
+-- =====================================================================
+create or replace function public.salvar_empenho(
+  p_id              bigint,
+  p_empenho         jsonb,
+  p_grupos          jsonb default '[]'::jsonb,
+  p_itens           jsonb default '[]'::jsonb,
+  p_criado_por      uuid  default null,
+  p_criado_por_nome text  default null
+) returns bigint
+language plpgsql
+security invoker
+as $se$
+declare
+  v_id bigint := p_id;
+  g jsonb;
+  it jsonb;
+begin
+  if v_id is null then
+    insert into public.empenhos (
+      numero, data_emissao, fornecedor_id, valor_inicial, reforco,
+      cancelamento, anulacao, status, processo_suap, observacoes, link_pdf,
+      criado_por, criado_por_nome
+    ) values (
+      p_empenho->>'numero',
+      (p_empenho->>'data_emissao')::date,
+      nullif(p_empenho->>'fornecedor_id','')::bigint,
+      coalesce((p_empenho->>'valor_inicial')::numeric, 0),
+      coalesce((p_empenho->>'reforco')::numeric, 0),
+      coalesce((p_empenho->>'cancelamento')::numeric, 0),
+      coalesce((p_empenho->>'anulacao')::numeric, 0),
+      coalesce(p_empenho->>'status', 'ativo'),
+      nullif(p_empenho->>'processo_suap',''),
+      nullif(p_empenho->>'observacoes',''),
+      nullif(p_empenho->>'link_pdf',''),
+      p_criado_por,
+      p_criado_por_nome
+    ) returning id into v_id;
+  else
+    update public.empenhos set
+      numero        = p_empenho->>'numero',
+      data_emissao  = (p_empenho->>'data_emissao')::date,
+      fornecedor_id = nullif(p_empenho->>'fornecedor_id','')::bigint,
+      valor_inicial = coalesce((p_empenho->>'valor_inicial')::numeric, 0),
+      reforco       = coalesce((p_empenho->>'reforco')::numeric, 0),
+      cancelamento  = coalesce((p_empenho->>'cancelamento')::numeric, 0),
+      anulacao      = coalesce((p_empenho->>'anulacao')::numeric, 0),
+      status        = coalesce(p_empenho->>'status', 'ativo'),
+      processo_suap = nullif(p_empenho->>'processo_suap',''),
+      observacoes   = nullif(p_empenho->>'observacoes',''),
+      link_pdf      = nullif(p_empenho->>'link_pdf','')
+    where id = v_id;
+    if not found then
+      raise exception 'Empenho % nao encontrado ou sem permissao para alterar.', v_id;
+    end if;
+  end if;
+
+  -- alocacoes por grupo (upsert por id; senao, insere)
+  for g in select value from jsonb_array_elements(coalesce(p_grupos, '[]'::jsonb)) loop
+    if nullif(g->>'grupo_id','') is null then
+      continue;
+    end if;
+    if nullif(g->>'id','') is not null then
+      update public.empenhos_grupos set
+        grupo_id      = (g->>'grupo_id')::bigint,
+        valor_alocado = coalesce((g->>'valor_alocado')::numeric, 0),
+        percentual    = nullif(g->>'percentual','')::numeric,
+        observacoes   = nullif(g->>'observacoes','')
+      where id = (g->>'id')::bigint and empenho_id = v_id;
+    else
+      insert into public.empenhos_grupos (empenho_id, grupo_id, valor_alocado, percentual, observacoes)
+      values (
+        v_id, (g->>'grupo_id')::bigint,
+        coalesce((g->>'valor_alocado')::numeric, 0),
+        nullif(g->>'percentual','')::numeric,
+        nullif(g->>'observacoes','')
+      );
+    end if;
+  end loop;
+
+  -- itens empenhados (upsert por id; novos com qtd<=0 sao ignorados)
+  for it in select value from jsonb_array_elements(coalesce(p_itens, '[]'::jsonb)) loop
+    if nullif(it->>'item_id','') is null then
+      continue;
+    end if;
+    if nullif(it->>'id','') is not null then
+      update public.empenhos_itens set
+        quantidade     = coalesce((it->>'quantidade')::numeric, 0),
+        valor_unitario = nullif(it->>'valor_unitario','')::numeric
+      where id = (it->>'id')::bigint and empenho_id = v_id;
+    elsif coalesce((it->>'quantidade')::numeric, 0) > 0 then
+      insert into public.empenhos_itens (empenho_id, item_id, quantidade, valor_unitario)
+      values (
+        v_id, (it->>'item_id')::bigint,
+        coalesce((it->>'quantidade')::numeric, 0),
+        nullif(it->>'valor_unitario','')::numeric
+      );
+    end if;
+  end loop;
+
+  return v_id;
+end;
+$se$;
+
+revoke all on function public.salvar_empenho(bigint, jsonb, jsonb, jsonb, uuid, text) from public;
+grant execute on function public.salvar_empenho(bigint, jsonb, jsonb, jsonb, uuid, text) to authenticated;
