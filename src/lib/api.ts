@@ -19,13 +19,21 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { ...(await authHeaders()) };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  const doFetch = async () => {
+    const headers: Record<string, string> = { ...(await authHeaders()) };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    return fetch(`${BASE}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  };
+  let res = await doFetch();
+  // Token expirado (aba ociosa por muito tempo): renova a sessão e repete uma vez.
+  if (res.status === 401) {
+    await supabase.auth.refreshSession();
+    res = await doFetch();
+  }
   if (!res.ok) {
     let msg = `Erro ${res.status}`;
     try {
