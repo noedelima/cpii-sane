@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { msgErro } from "@/lib/erro";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import PdfUpload from "@/components/PdfUpload.vue";
@@ -346,7 +347,7 @@ async function baixarRecibosUnificados() {
       error.value = `PDF gerado, mas alguns recibos não puderam ser incluídos: ${pulados.join(", ")} (sem PDF legível ou link externo).`;
     }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "Falha ao unificar os PDFs.";
+    error.value = msgErro(e, "Falha ao unificar os PDFs.");
   } finally {
     mesclando.value = false;
   }
@@ -540,7 +541,7 @@ async function salvar(voltar = true) {
         `Já existe uma NF com o número ${numero.value} neste grupo. ` +
         `Abra a NF existente na lista de Notas Fiscais para editá-la — não é preciso criar de novo.`;
     } else {
-      error.value = err?.message || "Erro ao salvar.";
+      error.value = msgErro(err, "Erro ao salvar.");
     }
     return false;
   } finally {
@@ -577,7 +578,7 @@ async function distribuirFifo() {
           : "");
     }
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "Falha na distribuição pela fila.";
+    error.value = msgErro(e, "Falha na distribuição pela fila.");
   } finally {
     distribuindo.value = false;
   }
@@ -625,7 +626,7 @@ async function recalcularDebitoPelosItens() {
         ? ` ${semNe} item(ns) sem NE selecionada ficaram de fora — selecione a NE na coluna “Empenho”.`
         : "");
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "Falha ao recalcular o débito pelos itens.";
+    error.value = msgErro(e, "Falha ao recalcular o débito pelos itens.");
   } finally {
     recalculando.value = false;
   }
@@ -746,7 +747,7 @@ async function gerarPdfLancamento() {
     });
     doc.save(filename);
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "Falha ao gerar o PDF de lançamento.";
+    error.value = msgErro(e, "Falha ao gerar o PDF de lançamento.");
   } finally {
     gerandoPdf.value = false;
   }
