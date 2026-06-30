@@ -477,54 +477,28 @@ async function salvar(voltar = true) {
       link_pdf: linkPdf.value,
       link_instrumento_cobranca: linkCobranca.value,
     };
-    let id = nfId.value;
-    if (editMode.value && id) {
-      const { error: err } = await supabase.from("notas_fiscais").update(payload).eq("id", id);
-      if (err) throw err;
-    } else {
-      const { data, error: err } = await supabase
-        .from("notas_fiscais")
-        .insert({
-          ...payload,
-          criado_por: auth.user?.id ?? null,
-          criado_por_nome: auth.perfil?.nome ?? null,
-        })
-        .select("id")
-        .single();
-      if (err || !data) throw err ?? new Error("Falha ao criar NF.");
-      id = (data as { id: number }).id;
-    }
+    const itens = nfItens.value
+      .filter((l) => l.item_id && Number.isFinite(Number(l.quantidade)) && Number(l.quantidade) >= 0)
+      .map((l) => ({
+        id: l.id ?? null,
+        item_id: l.item_id,
+        quantidade: Number(l.quantidade),
+        valor_unitario: l.valor_unitario,
+        empenho_id: l.empenho_id ?? null,
+      }));
 
-    // sincroniza nf_grupos (apaga e reinsere o conjunto selecionado)
-    await supabase.from("nf_grupos").delete().eq("nf_id", id);
-    const { error: egErr } = await supabase
-      .from("nf_grupos")
-      .insert(gruposSel.value.map((g) => ({ nf_id: id, grupo_id: g })));
-    if (egErr) throw egErr;
-
-    // persiste itens da NF (update/insert)
-    if (editMode.value) {
-      for (const l of nfItens.value) {
-        if (!l.item_id) continue;
-        const q = Number(l.quantidade);
-        if (!Number.isFinite(q) || q < 0) continue;
-        if (!l.id && q <= 0) continue; // não cria item novo zerado (mas permite zerar um existente)
-        const linha = {
-          nf_id: id,
-          item_id: l.item_id,
-          quantidade: q,
-          valor_unitario: l.valor_unitario,
-          empenho_id: l.empenho_id ?? null,
-        };
-        if (l.id) {
-          const { error: e2 } = await supabase.from("nf_itens").update(linha).eq("id", l.id);
-          if (e2) throw e2;
-        } else {
-          const { error: e2 } = await supabase.from("nf_itens").insert(linha);
-          if (e2) throw e2;
-        }
-      }
-    }
+    // Salvamento atômico: NF + grupos + itens em UMA transação (RPC).
+    // Se qualquer passo falhar, tudo é revertido (nunca apaga grupos sem reinserir).
+    const { data, error: err } = await supabase.rpc("salvar_nota_fiscal", {
+      p_id: nfId.value,
+      p_nf: payload,
+      p_grupos: gruposSel.value,
+      p_itens: editMode.value ? itens : [],
+      p_criado_por: editMode.value ? null : auth.user?.id ?? null,
+      p_criado_por_nome: editMode.value ? null : auth.perfil?.nome ?? null,
+    });
+    if (err) throw err;
+    const id = (data as unknown as number) ?? nfId.value;
 
     if (!editMode.value) {
       // segue para o modo edição para liberar itens, recibos e rateio

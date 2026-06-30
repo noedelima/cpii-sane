@@ -2077,3 +2077,107 @@ $se$;
 
 revoke all on function public.salvar_empenho(bigint, jsonb, jsonb, jsonb, uuid, text) from public;
 grant execute on function public.salvar_empenho(bigint, jsonb, jsonb, jsonb, uuid, text) to authenticated;
+
+
+-- =====================================================================
+-- 26. Salvamento atomico de nota fiscal (NF + grupos + itens em 1 transacao)
+--     Evita commit parcial (ex.: NF atualizada e nf_grupos apagados sem reinserir).
+--     security invoker => RLS de cada tabela continua valendo (so sane/admin).
+-- =====================================================================
+create or replace function public.salvar_nota_fiscal(
+  p_id              bigint,
+  p_nf              jsonb,
+  p_grupos          jsonb default '[]'::jsonb,
+  p_itens           jsonb default '[]'::jsonb,
+  p_criado_por      uuid  default null,
+  p_criado_por_nome text  default null
+) returns bigint
+language plpgsql
+security invoker
+as $snf$
+declare
+  v_id bigint := p_id;
+  g jsonb;
+  it jsonb;
+begin
+  if v_id is null then
+    insert into public.notas_fiscais (
+      numero, grupo_id, fornecedor_id, data_emissao, data_entrega, valor_total,
+      processo_pagamento, data_abertura_processo, status, ocorrencias, observacoes,
+      link_pdf, link_instrumento_cobranca, criado_por, criado_por_nome
+    ) values (
+      p_nf->>'numero',
+      nullif(p_nf->>'grupo_id','')::bigint,
+      nullif(p_nf->>'fornecedor_id','')::bigint,
+      nullif(p_nf->>'data_emissao','')::date,
+      (p_nf->>'data_entrega')::date,
+      nullif(p_nf->>'valor_total','')::numeric,
+      nullif(p_nf->>'processo_pagamento',''),
+      nullif(p_nf->>'data_abertura_processo','')::date,
+      coalesce(p_nf->>'status','pendente'),
+      nullif(p_nf->>'ocorrencias',''),
+      nullif(p_nf->>'observacoes',''),
+      nullif(p_nf->>'link_pdf',''),
+      nullif(p_nf->>'link_instrumento_cobranca',''),
+      p_criado_por,
+      p_criado_por_nome
+    ) returning id into v_id;
+  else
+    update public.notas_fiscais set
+      numero                 = p_nf->>'numero',
+      grupo_id               = nullif(p_nf->>'grupo_id','')::bigint,
+      fornecedor_id          = nullif(p_nf->>'fornecedor_id','')::bigint,
+      data_emissao           = nullif(p_nf->>'data_emissao','')::date,
+      data_entrega           = (p_nf->>'data_entrega')::date,
+      valor_total            = nullif(p_nf->>'valor_total','')::numeric,
+      processo_pagamento     = nullif(p_nf->>'processo_pagamento',''),
+      data_abertura_processo = nullif(p_nf->>'data_abertura_processo','')::date,
+      status                 = coalesce(p_nf->>'status','pendente'),
+      ocorrencias            = nullif(p_nf->>'ocorrencias',''),
+      observacoes            = nullif(p_nf->>'observacoes',''),
+      link_pdf               = nullif(p_nf->>'link_pdf',''),
+      link_instrumento_cobranca = nullif(p_nf->>'link_instrumento_cobranca','')
+    where id = v_id;
+    if not found then
+      raise exception 'NF % nao encontrada ou sem permissao para alterar.', v_id;
+    end if;
+  end if;
+
+  -- grupos: apaga e reinsere o conjunto selecionado (atomico nesta transacao)
+  delete from public.nf_grupos where nf_id = v_id;
+  for g in select value from jsonb_array_elements(coalesce(p_grupos, '[]'::jsonb)) loop
+    if nullif(g#>>'{}','') is not null then
+      insert into public.nf_grupos (nf_id, grupo_id)
+      values (v_id, (g#>>'{}')::bigint)
+      on conflict (nf_id, grupo_id) do nothing;
+    end if;
+  end loop;
+
+  -- itens (upsert por id; novos com qtd<=0 ignorados)
+  for it in select value from jsonb_array_elements(coalesce(p_itens, '[]'::jsonb)) loop
+    if nullif(it->>'item_id','') is null then
+      continue;
+    end if;
+    if nullif(it->>'id','') is not null then
+      update public.nf_itens set
+        quantidade     = coalesce((it->>'quantidade')::numeric, 0),
+        valor_unitario = nullif(it->>'valor_unitario','')::numeric,
+        empenho_id     = nullif(it->>'empenho_id','')::bigint
+      where id = (it->>'id')::bigint and nf_id = v_id;
+    elsif coalesce((it->>'quantidade')::numeric, 0) > 0 then
+      insert into public.nf_itens (nf_id, item_id, quantidade, valor_unitario, empenho_id)
+      values (
+        v_id, (it->>'item_id')::bigint,
+        coalesce((it->>'quantidade')::numeric, 0),
+        nullif(it->>'valor_unitario','')::numeric,
+        nullif(it->>'empenho_id','')::bigint
+      );
+    end if;
+  end loop;
+
+  return v_id;
+end;
+$snf$;
+
+revoke all on function public.salvar_nota_fiscal(bigint, jsonb, jsonb, jsonb, uuid, text) from public;
+grant execute on function public.salvar_nota_fiscal(bigint, jsonb, jsonb, jsonb, uuid, text) to authenticated;
