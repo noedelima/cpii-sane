@@ -8,6 +8,7 @@ import PdfUpload from "@/components/PdfUpload.vue";
 import { carregarLogo } from "@/lib/pdf-ateste";
 import { montarPdfEmpenhoSaldos } from "@/lib/pdf-empenho-saldos";
 import { getCabecalho } from "@/lib/config";
+import { msgErro } from "@/lib/erro";
 import type { Empenho, Fornecedor, Grupo, Item, VwEmpenhoItemSaldo } from "@/types/database";
 
 interface Alocacao {
@@ -436,7 +437,7 @@ async function salvar() {
 
     router.push("/empenhos");
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "Erro ao salvar.";
+    error.value = msgErro(e, "Erro ao salvar.");
   } finally {
     saving.value = false;
   }
@@ -515,7 +516,7 @@ async function gerarPdfSaldos() {
     });
     doc.save(filename);
   } catch (e) {
-    error.value = e instanceof Error ? e.message : "Falha ao gerar o PDF de saldos.";
+    error.value = msgErro(e, "Falha ao gerar o PDF de saldos.");
   } finally {
     gerandoPdf.value = false;
   }
