@@ -207,6 +207,11 @@ create index if not exists idx_nf_status on public.notas_fiscais(status);
 -- e foi substituída pela tabela nf_empenhos (rateio N:N, abaixo).
 alter table public.notas_fiscais drop column if exists empenho_id;
 
+-- Migração idempotente (01/07/2026): entrega pode ser um período (de X a Y).
+-- data_entrega = início (X, obrigatória); data_entrega_fim = fim (Y, opcional).
+-- Quando fim é nulo ou igual ao início, a entrega é de dia único.
+alter table public.notas_fiscais add column if not exists data_entrega_fim date;
+
 -- Adiciona FK de recibos.nf_id agora que notas_fiscais existe
 do $$ begin
   alter table public.recibos
@@ -2102,7 +2107,7 @@ declare
 begin
   if v_id is null then
     insert into public.notas_fiscais (
-      numero, grupo_id, fornecedor_id, data_emissao, data_entrega, valor_total,
+      numero, grupo_id, fornecedor_id, data_emissao, data_entrega, data_entrega_fim, valor_total,
       processo_pagamento, data_abertura_processo, status, ocorrencias, observacoes,
       link_pdf, link_instrumento_cobranca, criado_por, criado_por_nome
     ) values (
@@ -2111,6 +2116,7 @@ begin
       nullif(p_nf->>'fornecedor_id','')::bigint,
       nullif(p_nf->>'data_emissao','')::date,
       (p_nf->>'data_entrega')::date,
+      nullif(p_nf->>'data_entrega_fim','')::date,
       nullif(p_nf->>'valor_total','')::numeric,
       nullif(p_nf->>'processo_pagamento',''),
       nullif(p_nf->>'data_abertura_processo','')::date,
@@ -2129,6 +2135,7 @@ begin
       fornecedor_id          = nullif(p_nf->>'fornecedor_id','')::bigint,
       data_emissao           = nullif(p_nf->>'data_emissao','')::date,
       data_entrega           = (p_nf->>'data_entrega')::date,
+      data_entrega_fim       = nullif(p_nf->>'data_entrega_fim','')::date,
       valor_total            = nullif(p_nf->>'valor_total','')::numeric,
       processo_pagamento     = nullif(p_nf->>'processo_pagamento',''),
       data_abertura_processo = nullif(p_nf->>'data_abertura_processo','')::date,

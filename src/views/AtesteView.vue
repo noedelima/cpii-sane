@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
-import { fmtDate, fmtMoney } from "@/lib/format";
+import { fmtDate, fmtMoney, fmtEntrega } from "@/lib/format";
 import { carregarLogo, montarPdfAteste } from "@/lib/pdf-ateste";
 import { getCabecalho, getLocalEmissao } from "@/lib/config";
 import type { Ateste, Fornecedor, Grupo, NotaFiscal } from "@/types/database";
@@ -474,7 +474,7 @@ onMounted(async () => {
                   class="ml-1.5 text-[10px] uppercase bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 rounded px-1 py-0.5"
                 >já atestada</span>
               </td>
-              <td class="px-3 py-2 whitespace-nowrap">{{ fmtDate(n.data_entrega) }}</td>
+              <td class="px-3 py-2 whitespace-nowrap">{{ fmtEntrega(n.data_entrega, n.data_entrega_fim) }}</td>
               <td class="px-3 py-2">{{ grupoPorId.get(n.grupo_id)?.numero_romano ?? "—" }}</td>
               <td class="px-3 py-2 text-slate-600 dark:text-slate-300 max-w-[14rem] truncate" :title="n.processo_pagamento ?? ''">
                 {{ n.processo_pagamento ?? "—" }}

@@ -141,6 +141,8 @@ export interface NotaFiscal {
   numero: string;
   data_emissao: string | null;
   data_entrega: string;
+  /** Fim do período de entrega (opcional). Nulo/igual ao início = dia único. */
+  data_entrega_fim: string | null;
   grupo_id: number;
   fornecedor_id: number | null;
   campus_id: number | null;

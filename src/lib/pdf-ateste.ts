@@ -1,7 +1,7 @@
 // Montagem do PDF de ateste de recebimento (usado na emissão e no histórico).
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { fmtDate, fmtMoney } from "@/lib/format";
+import { fmtDate, fmtMoney, fmtEntrega } from "@/lib/format";
 import type { Grupo, NotaFiscal } from "@/types/database";
 
 export interface AtesteDocParams {
@@ -116,11 +116,18 @@ export function montarPdfAteste(p: AtesteDocParams): {
     })
     .filter(Boolean);
 
-  const entregas = p.nfs.map((n) => n.data_entrega).sort();
+  // Período global do ateste: menor início até o maior fim (usa o fim quando houver).
+  const inicios = p.nfs.map((n) => n.data_entrega).filter(Boolean).sort();
+  const finais = p.nfs
+    .map((n) => n.data_entrega_fim || n.data_entrega)
+    .filter(Boolean)
+    .sort();
+  const minIni = inicios[0];
+  const maxFim = finais[finais.length - 1];
   const periodo =
-    entregas.length > 1
-      ? `${fmtDate(entregas[0])} a ${fmtDate(entregas[entregas.length - 1])}`
-      : fmtDate(entregas[0]);
+    minIni && maxFim && minIni !== maxFim
+      ? `${fmtDate(minIni)} a ${fmtDate(maxFim)}`
+      : fmtDate(minIni);
 
   autoTable(doc, {
     startY: 54,
@@ -146,7 +153,7 @@ export function montarPdfAteste(p: AtesteDocParams): {
       body.push([
         r.grupo?.numero_romano ?? "—",
         n.numero,
-        fmtDate(n.data_entrega),
+        fmtEntrega(n.data_entrega, n.data_entrega_fim),
         n.processo_pagamento ?? "—",
         fmtMoney(n.valor_total),
       ] as Row);
@@ -183,10 +190,10 @@ export function montarPdfAteste(p: AtesteDocParams): {
     headStyles: { fillColor: [30, 58, 138], textColor: 255, fontSize: 8.5 },
     footStyles: { fillColor: [226, 232, 240], textColor: 20, fontStyle: "bold" },
     columnStyles: {
-      0: { cellWidth: 16 },
-      1: { cellWidth: 30 },
-      2: { cellWidth: 22 },
-      4: { cellWidth: 28, halign: "right" },
+      0: { cellWidth: 14 },
+      1: { cellWidth: 26 },
+      2: { cellWidth: 34 },
+      4: { cellWidth: 26, halign: "right" },
     },
     margin: { left: M, right: M },
     didParseCell: (hook) => {

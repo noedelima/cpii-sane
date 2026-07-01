@@ -3,7 +3,7 @@
 // controle dela.
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { fmtDate, fmtMoney } from "@/lib/format";
+import { fmtDate, fmtMoney, fmtEntrega } from "@/lib/format";
 
 export interface NFLancItem {
   codigo_catmat: string | null;
@@ -23,6 +23,7 @@ export interface NFLancParams {
   numero: string;
   dataEmissao: string | null;
   dataEntrega: string;
+  dataEntregaFim?: string | null;
   fornecedor: { codigo: string; razao_social: string; cnpj: string | null };
   grupos: string[];
   valorTotal: number | null;
@@ -69,7 +70,7 @@ export function montarPdfNFLancamento(p: NFLancParams): { doc: jsPDF; filename: 
       ["Fornecedor:", `${p.fornecedor.razao_social} (${p.fornecedor.codigo})`],
       ["CNPJ:", p.fornecedor.cnpj ?? "—"],
       ["Grupo(s)/Contrato(s):", p.grupos.length ? p.grupos.join("\n") : "—"],
-      ["Emissão / Entrega:", `${p.dataEmissao ? fmtDate(p.dataEmissao) : "—"} / ${fmtDate(p.dataEntrega)}`],
+      ["Emissão / Entrega:", `${p.dataEmissao ? fmtDate(p.dataEmissao) : "—"} / ${fmtEntrega(p.dataEntrega, p.dataEntregaFim)}`],
       ["Processo de pagamento:", p.processoPagamento || "—"],
     ],
   });

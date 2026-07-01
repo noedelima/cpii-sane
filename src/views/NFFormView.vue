@@ -55,6 +55,17 @@ const numero = ref("");
 const gruposSel = ref<number[]>([]);
 const dataEmissao = ref<string>("");
 const dataEntrega = ref(new Date().toISOString().slice(0, 10));
+// Fim opcional do período de entrega (NF que cobre várias semanas). Vazio = dia único.
+const dataEntregaFim = ref<string>("");
+const mostrarPeriodo = ref(false);
+function abrirPeriodo() {
+  mostrarPeriodo.value = true;
+  if (!dataEntregaFim.value) dataEntregaFim.value = dataEntrega.value;
+}
+function fecharPeriodo() {
+  mostrarPeriodo.value = false;
+  dataEntregaFim.value = "";
+}
 const valorTotal = ref<number | null>(null);
 const processoPagamento = ref("");
 const dataAberturaProcesso = ref<string>("");
@@ -421,6 +432,11 @@ async function loadNF() {
   numero.value = nf.numero;
   dataEmissao.value = nf.data_emissao ?? "";
   dataEntrega.value = nf.data_entrega;
+  dataEntregaFim.value =
+    nf.data_entrega_fim && nf.data_entrega_fim !== nf.data_entrega
+      ? nf.data_entrega_fim
+      : "";
+  mostrarPeriodo.value = !!dataEntregaFim.value;
   valorTotal.value = nf.valor_total == null ? null : Number(nf.valor_total);
   processoPagamento.value = nf.processo_pagamento ?? "";
   dataAberturaProcesso.value = nf.data_abertura_processo ?? "";
@@ -460,6 +476,10 @@ async function salvar(voltar = true) {
     error.value = "Preencha número, ao menos um grupo e a data de entrega.";
     return false;
   }
+  if (dataEntregaFim.value && dataEntregaFim.value < dataEntrega.value) {
+    error.value = "A data final da entrega não pode ser anterior à inicial.";
+    return false;
+  }
   saving.value = true;
   try {
     const payload = {
@@ -468,6 +488,10 @@ async function salvar(voltar = true) {
       fornecedor_id: grupoPrincipal.value?.fornecedor_id ?? null,
       data_emissao: dataEmissao.value || null,
       data_entrega: dataEntrega.value,
+      data_entrega_fim:
+        dataEntregaFim.value && dataEntregaFim.value !== dataEntrega.value
+          ? dataEntregaFim.value
+          : null,
       valor_total: valorTotal.value,
       processo_pagamento: processoPagamento.value.trim() || null,
       data_abertura_processo: dataAberturaProcesso.value || null,
@@ -705,6 +729,10 @@ async function gerarPdfLancamento() {
       numero: numero.value,
       dataEmissao: dataEmissao.value || null,
       dataEntrega: dataEntrega.value,
+      dataEntregaFim:
+        dataEntregaFim.value && dataEntregaFim.value !== dataEntrega.value
+          ? dataEntregaFim.value
+          : null,
       fornecedor: {
         codigo: forn?.codigo ?? "—",
         razao_social: forn?.razao_social ?? "—",
@@ -805,8 +833,33 @@ onMounted(async () => {
             <input v-model="dataEmissao" type="date" class="input" />
           </div>
           <div>
-            <label class="label">Data de entrega</label>
+            <div class="flex items-center justify-between gap-2">
+              <label class="label mb-0">{{ mostrarPeriodo ? "Entrega — de" : "Data de entrega" }}</label>
+              <button
+                v-if="!mostrarPeriodo"
+                type="button"
+                class="text-xs font-medium text-gold-700 hover:underline dark:text-gold-400"
+                @click="abrirPeriodo"
+              >
+                + período
+              </button>
+              <button
+                v-else
+                type="button"
+                class="text-xs font-medium text-slate-500 hover:underline dark:text-slate-400"
+                @click="fecharPeriodo"
+              >
+                − remover fim
+              </button>
+            </div>
             <input v-model="dataEntrega" type="date" class="input" required />
+            <div v-if="mostrarPeriodo" class="mt-2">
+              <label class="label">Entrega — até</label>
+              <input v-model="dataEntregaFim" type="date" :min="dataEntrega" class="input" />
+              <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Use para NFs que cobrem mais de uma semana. No ateste aparece “De X a Y”.
+              </p>
+            </div>
           </div>
           <div>
             <label class="label">Status</label>
