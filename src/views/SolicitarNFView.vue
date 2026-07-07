@@ -489,7 +489,7 @@ onMounted(async () => {
           </select>
         </div>
         <div>
-          <label class="label">Recebimento de</label>
+          <label class="label">Pedido de</label>
           <input v-model="dataDe" type="date" class="input" />
         </div>
         <div>
@@ -520,7 +520,7 @@ onMounted(async () => {
               <th class="px-3 py-2 text-left">Recibo</th>
               <th class="px-3 py-2 text-left">Campus</th>
               <th class="px-3 py-2 text-left">Grupo</th>
-              <th class="px-3 py-2 text-left">Recebimento</th>
+              <th class="px-3 py-2 text-left">Pedido</th>
               <th class="px-3 py-2 text-left">Status</th>
             </tr>
           </thead>

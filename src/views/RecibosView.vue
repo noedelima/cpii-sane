@@ -214,7 +214,7 @@ onMounted(async () => {
               <input type="checkbox" :checked="todosSelecionados" class="accent-cpii-600" @change="alternarTodos" />
             </th>
             <th class="px-4 py-2 text-left">Nº</th>
-            <th class="px-4 py-2 text-left">Data</th>
+            <th class="px-4 py-2 text-left">Pedido</th>
             <th class="px-4 py-2 text-left">Campus</th>
             <th class="px-4 py-2 text-left">Grupo</th>
             <th class="px-4 py-2 text-left">NF</th>

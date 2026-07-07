@@ -17,7 +17,7 @@ insert into public.campi (nome, sigla, codigo) values
   ('Tijuca I',          'TIJ-I',  'TIJ-I'),
   ('Tijuca II',         'TIJ-II', 'TIJ-II'),
   ('Duque de Caxias',   'DC',     'DC'),
-  ('CREIR',             'CREIR',  'CREIR')
+  ('Realengo III',      'CREIII', 'CREIII')
 on conflict (nome) do nothing;
 
 -- Fornecedores

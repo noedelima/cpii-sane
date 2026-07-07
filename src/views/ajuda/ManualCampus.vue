@@ -111,7 +111,7 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
     <p>Na área <strong>Recibos</strong>, clique em <strong>“+ Novo recibo”</strong> e preencha:</p>
     <ol class="passos">
       <li><strong>Nº do recibo</strong> — o número do documento entregue pelo fornecedor.</li>
-      <li><strong>Data do recebimento</strong> — o dia em que a entrega chegou.</li>
+      <li><strong>Data do pedido</strong> — a data do pedido a que o recibo se refere. Se a entrega tiver ocorrido em outro dia (ex.: pedido de uma semana entregue junto com o da seguinte), mantenha a data do pedido e registre a divergência nas observações.</li>
       <li><strong>Campus</strong> — já vem preenchido com o seu (quando você é de um campus).</li>
       <li><strong>Grupo</strong> — o contrato/grupo dos itens entregues (ex.: “Grupo I — Hortifruti A”). Selecione-o
         primeiro: a lista de itens depende do grupo.</li>
@@ -138,7 +138,7 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
           <div class="font-medium text-slate-700 dark:text-slate-200">Cabeçalho</div>
           <div class="grid grid-cols-2 gap-3">
             <div><div class="label">Nº do recibo</div><div class="input">001234</div></div>
-            <div><div class="label">Data do recebimento</div><div class="input">12/05/2026</div></div>
+            <div><div class="label">Data do pedido</div><div class="input">12/05/2026</div></div>
             <div><div class="label">Campus</div><div class="input">Campus Centro</div></div>
             <div><div class="label">Grupo</div><div class="input">Grupo I - Hortifruti A - REFISERVI</div></div>
           </div>

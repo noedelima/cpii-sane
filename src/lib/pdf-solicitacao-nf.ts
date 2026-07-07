@@ -124,7 +124,7 @@ export function montarPdfSolicitacaoNF(p: SolicNFParams): { doc: jsPDF; filename
   y += 2;
   autoTable(doc, {
     startY: y,
-    head: [["Recibo", "Campus", "Recebimento"]],
+    head: [["Recibo", "Campus", "Data do pedido"]],
     body: p.recibos.length
       ? p.recibos.map((r) => [r.numero, r.campus, fmtDate(r.data_recebimento)])
       : [["—", "—", "—"]],

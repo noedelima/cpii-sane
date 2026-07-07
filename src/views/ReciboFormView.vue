@@ -353,8 +353,11 @@ onMounted(async () => {
             <input v-model="numero" type="text" class="input" required :disabled="!podeEditarCabecalho" />
           </div>
           <div>
-            <label class="label">Data do recebimento</label>
+            <label class="label">Data do pedido</label>
             <input v-model="dataRecebimento" type="date" class="input" required :disabled="!podeEditarCabecalho" />
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Data do pedido a que o recibo se refere. Se a entrega ocorreu em outro dia, registre nas observações.
+            </p>
           </div>
           <div>
             <label class="label">Campus</label>

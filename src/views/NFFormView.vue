@@ -1014,7 +1014,7 @@ onMounted(async () => {
             <tr>
               <th class="text-left py-1">Nº</th>
               <th class="text-left py-1">Campus</th>
-              <th class="text-left py-1">Recebimento</th>
+              <th class="text-left py-1">Pedido</th>
               <th class="text-left py-1">Status</th>
               <th class="text-left py-1">PDF</th>
               <th class="py-1"></th>
