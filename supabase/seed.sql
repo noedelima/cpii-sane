@@ -14,8 +14,8 @@ insert into public.campi (nome, sigla, codigo) values
   ('São Cristóvão I',   'CSCI',   'CSCI'),
   ('São Cristóvão II',  'CSCII',  'CSCII'),
   ('São Cristóvão III', 'CSCIII', 'CSCIII'),
-  ('Tijuca I',          'CTII',   'CTII'),
-  ('Tijuca II',         'CTIII',  'CTIII'),
+  ('Tijuca I',          'CTI',    'CTI'),
+  ('Tijuca II',         'CTII',   'CTII'),
   ('Duque de Caxias',   'CDC',    'CDC'),
   ('Realengo III',      'CREIII', 'CREIII')
 on conflict (nome) do nothing;
