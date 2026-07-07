@@ -3,20 +3,20 @@
 
 -- Campi (15 do CPII)
 insert into public.campi (nome, sigla, codigo) values
-  ('Centro',            'CTRO',   'CTRO'),
-  ('Engenho Novo I',    'EN-I',   'EN-I'),
-  ('Engenho Novo II',   'EN-II',  'EN-II'),
-  ('Humaitá I',         'HUM-I',  'HUM-I'),
-  ('Humaitá II',        'HUM-II', 'HUM-II'),
-  ('Niterói',           'NIT',    'NIT'),
-  ('Realengo I',        'REA-I',  'REA-I'),
-  ('Realengo II',       'REA-II', 'REA-II'),
-  ('São Cristóvão I',   'SC-I',   'SC-I'),
-  ('São Cristóvão II',  'SC-II',  'SC-II'),
-  ('São Cristóvão III', 'SC-III', 'SC-III'),
-  ('Tijuca I',          'TIJ-I',  'TIJ-I'),
-  ('Tijuca II',         'TIJ-II', 'TIJ-II'),
-  ('Duque de Caxias',   'DC',     'DC'),
+  ('Centro',            'CCE',    'CCE'),
+  ('Engenho Novo I',    'CENI',   'CENI'),
+  ('Engenho Novo II',   'CENII',  'CENII'),
+  ('Humaitá I',         'CHUI',   'CHUI'),
+  ('Humaitá II',        'CHUII',  'CHUII'),
+  ('Niterói',           'CNI',    'CNI'),
+  ('Realengo I',        'CREI',   'CREI'),
+  ('Realengo II',       'CREII',  'CREII'),
+  ('São Cristóvão I',   'CSCI',   'CSCI'),
+  ('São Cristóvão II',  'CSCII',  'CSCII'),
+  ('São Cristóvão III', 'CSCIII', 'CSCIII'),
+  ('Tijuca I',          'CTII',   'CTII'),
+  ('Tijuca II',         'CTIII',  'CTIII'),
+  ('Duque de Caxias',   'CDC',    'CDC'),
   ('Realengo III',      'CREIII', 'CREIII')
 on conflict (nome) do nothing;
 
