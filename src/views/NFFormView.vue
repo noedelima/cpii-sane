@@ -94,9 +94,16 @@ const novaQtd = ref<number | null>(null);
 const recibosVinculados = ref<ReciboRow[]>([]);
 const recibosCandidatos = ref<ReciboRow[]>([]);
 const buscaRecibo = ref("");
+// filtro por periodo (data do pedido/recebimento) na vinculacao de recibos
+const reciboDe = ref("");
+const reciboAte = ref("");
 const buscandoRecibos = ref(false);
 const mesclando = ref(false);
 let buscaTimer: ReturnType<typeof setTimeout> | null = null;
+
+// pre-preenchimento a partir de uma Solicitacao de NF (botao "Gerar NF")
+const solicitacaoOrigemId = ref<number | null>(null);
+const recibosParaVincular = ref<number[]>([]);
 
 const loading = ref(false);
 const saving = ref(false);
@@ -267,8 +274,10 @@ async function buscarRecibosCandidatos() {
     .select("*, campi (nome)")
     .in("grupo_id", gruposSel.value)
     .order("data_recebimento", { ascending: false })
-    .limit(50);
+    .limit(100);
   if (buscaRecibo.value.trim()) q = q.ilike("numero", `%${buscaRecibo.value.trim()}%`);
+  if (reciboDe.value) q = q.gte("data_recebimento", reciboDe.value);
+  if (reciboAte.value) q = q.lte("data_recebimento", reciboAte.value);
   const { data } = await q;
   recibosCandidatos.value = ((data as ReciboRow[] | null) ?? []).filter(
     (r) => !recibosVinculadosIds.value.has(r.id)
@@ -307,10 +316,25 @@ async function desvincularRecibo(r: ReciboRow) {
   await buscarRecibosCandidatos();
 }
 
+// vincula os recibos herdados de uma Solicitacao apos a NF ganhar id
+async function vincularRecibosPendentes() {
+  if (!nfId.value || !recibosParaVincular.value.length) return;
+  const rows = recibosParaVincular.value.map((rid) => ({ nf_id: nfId.value, recibo_id: rid }));
+  recibosParaVincular.value = [];
+  const { error: err } = await supabase.from("nf_recibos").insert(rows);
+  if (err && !err.message.includes("duplicate")) {
+    error.value = "NF criada, mas falhou ao vincular alguns recibos: " + err.message;
+  }
+  await Promise.all([loadRecibosVinculados(), buscarRecibosCandidatos()]);
+}
+
 watch(buscaRecibo, () => {
   if (buscaTimer) clearTimeout(buscaTimer);
   buscaTimer = setTimeout(buscarRecibosCandidatos, 350);
 });
+
+// filtro por periodo: recarrega a lista de candidatos ao mudar as datas
+watch([reciboDe, reciboAte], () => buscarRecibosCandidatos());
 
 async function baixarRecibosUnificados() {
   const comPdf = recibosVinculados.value.filter((r) => r.link_pdf);
@@ -467,6 +491,8 @@ async function loadNF() {
     loadRecibosVinculados(),
   ]);
   await Promise.all([loadPrecosHistorico(), buscarRecibosCandidatos()]);
+  // recibos herdados de uma Solicitacao (botao "Gerar NF"): vincula agora que ha nf_id
+  if (recibosParaVincular.value.length) await vincularRecibosPendentes();
   loading.value = false;
 }
 
@@ -517,7 +543,7 @@ async function salvar(voltar = true) {
       p_id: nfId.value,
       p_nf: payload,
       p_grupos: gruposSel.value,
-      p_itens: editMode.value ? itens : [],
+      p_itens: itens,
       p_criado_por: editMode.value ? null : auth.user?.id ?? null,
       p_criado_por_nome: editMode.value ? null : auth.perfil?.nome ?? null,
     });
@@ -525,6 +551,14 @@ async function salvar(voltar = true) {
     const id = (data as unknown as number) ?? nfId.value;
 
     if (!editMode.value) {
+      // origem em Solicitacao de NF: marca como atendida (nao bloqueia se falhar)
+      if (solicitacaoOrigemId.value) {
+        await supabase
+          .from("solicitacoes_nf")
+          .update({ status: "atendida" })
+          .eq("id", solicitacaoOrigemId.value);
+        solicitacaoOrigemId.value = null;
+      }
       // segue para o modo edição para liberar itens, recibos e rateio
       router.replace(`/nfs/${id}`);
       return true;
@@ -771,8 +805,101 @@ watch(
   { deep: true }
 );
 
+async function preencherDeSolicitacao(solId: number) {
+  loading.value = true;
+  try {
+    const { data: sol } = await supabase
+      .from("solicitacoes_nf")
+      .select("id, grupo_id, periodo_inicio, periodo_fim, observacoes")
+      .eq("id", solId)
+      .single();
+    if (!sol) {
+      error.value = "Solicitação não encontrada.";
+      return;
+    }
+    const s = sol as {
+      id: number;
+      grupo_id: number | null;
+      periodo_inicio: string | null;
+      periodo_fim: string | null;
+      observacoes: string | null;
+    };
+
+    const { data: itensSnap } = await supabase
+      .from("solicitacoes_nf_itens")
+      .select("item_id, descricao, codigo_catmat, unidade, quantidade, valor_unitario")
+      .eq("solicitacao_id", solId);
+    type Snap = {
+      item_id: number;
+      descricao: string | null;
+      codigo_catmat: string | null;
+      unidade: string | null;
+      quantidade: number;
+      valor_unitario: number;
+    };
+    const snap = (itensSnap as Snap[] | null) ?? [];
+
+    // o snapshot nao guarda grupo_id — busca o grupo de cada item
+    const itemIds = Array.from(new Set(snap.map((r) => r.item_id)));
+    const grupoDoItem = new Map<number, number>();
+    if (itemIds.length) {
+      const { data: its } = await supabase
+        .from("itens")
+        .select("id, grupo_id")
+        .in("id", itemIds);
+      for (const it of (its as { id: number; grupo_id: number }[] | null) ?? []) {
+        grupoDoItem.set(it.id, it.grupo_id);
+      }
+    }
+
+    const gruposDosItens = Array.from(
+      new Set(snap.map((r) => grupoDoItem.get(r.item_id)).filter((x): x is number => x != null))
+    );
+    let sel = gruposDosItens;
+    if (s.grupo_id != null) sel = [s.grupo_id, ...gruposDosItens.filter((g) => g !== s.grupo_id)];
+    gruposSel.value = sel.length ? sel : s.grupo_id != null ? [s.grupo_id] : [];
+
+    nfItens.value = snap.map((r) => ({
+      item_id: r.item_id,
+      quantidade: Number(r.quantidade),
+      valor_unitario: r.valor_unitario == null ? null : Number(r.valor_unitario),
+      empenho_id: null,
+      _descricao: r.descricao ?? "—",
+      _unidade: r.unidade ?? "",
+      _catmat: r.codigo_catmat ?? null,
+      _grupoId: grupoDoItem.get(r.item_id) ?? 0,
+    }));
+
+    valorTotal.value =
+      Math.round(nfItens.value.reduce((a, l) => a + l.quantidade * (l.valor_unitario ?? 0), 0) * 100) / 100;
+
+    if (s.periodo_fim) dataEntrega.value = s.periodo_fim;
+    else if (s.periodo_inicio) dataEntrega.value = s.periodo_inicio;
+
+    const { data: vinc } = await supabase
+      .from("solicitacoes_nf_recibos")
+      .select("recibo_id")
+      .eq("solicitacao_id", solId);
+    recibosParaVincular.value = ((vinc as { recibo_id: number }[] | null) ?? []).map((v) => v.recibo_id);
+
+    solicitacaoOrigemId.value = solId;
+    aviso.value =
+      `Formulário preenchido a partir da Solicitação nº ${String(solId).padStart(3, "0")}. ` +
+      `Confira os itens, informe o número e a data de emissão da NF e salve.`;
+  } catch (e) {
+    error.value = msgErro(e, "Falha ao carregar a solicitação.");
+  } finally {
+    loading.value = false;
+  }
+}
+
 onMounted(async () => {
   await loadRefs();
+  const solQ = route.query.de_solicitacao;
+  const solId = solQ ? Number(Array.isArray(solQ) ? solQ[0] : solQ) : null;
+  if (!editMode.value && solId && Number.isFinite(solId)) {
+    await preencherDeSolicitacao(solId);
+  }
   await loadNF();
 });
 </script>
@@ -897,7 +1024,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div v-if="editMode" class="card p-5 space-y-4">
+      <div v-if="editMode || nfItens.length" class="card p-5 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h2 class="font-medium text-slate-700 dark:text-slate-200">Itens da NF</h2>
           <button
@@ -1045,7 +1172,23 @@ onMounted(async () => {
 
         <div class="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-2">
           <label class="label">Associar recibos do(s) grupo(s)</label>
-          <input v-model="buscaRecibo" type="search" class="input max-w-xs" placeholder="Buscar nº do recibo…" />
+          <div class="flex flex-wrap items-end gap-2">
+            <input v-model="buscaRecibo" type="search" class="input max-w-xs" placeholder="Buscar nº do recibo…" />
+            <div>
+              <label class="label text-xs mb-0">Pedido de</label>
+              <input v-model="reciboDe" type="date" class="input" />
+            </div>
+            <div>
+              <label class="label text-xs mb-0">até</label>
+              <input v-model="reciboAte" type="date" class="input" />
+            </div>
+            <button
+              v-if="buscaRecibo || reciboDe || reciboAte"
+              type="button"
+              class="btn-ghost text-xs"
+              @click="buscaRecibo = ''; reciboDe = ''; reciboAte = ''"
+            >limpar</button>
+          </div>
           <div v-if="buscandoRecibos" class="text-sm text-slate-500 dark:text-slate-400">Buscando…</div>
           <div v-else-if="recibosCandidatos.length" class="max-h-56 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-700 border border-slate-200 dark:border-slate-700 rounded-md">
             <div

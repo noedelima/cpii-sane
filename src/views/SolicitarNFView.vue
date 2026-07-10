@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
@@ -21,6 +22,12 @@ interface ReciboItemRow {
 }
 
 const auth = useAuthStore();
+const router = useRouter();
+
+// abre o formulario de NF pre-preenchido a partir desta solicitacao salva
+function gerarNF(s: SolicRow) {
+  router.push({ name: "nf-nova", query: { de_solicitacao: String(s.id) } });
+}
 
 const fornecedores = ref<Fornecedor[]>([]);
 const fornecedorId = ref<number | null>(null);
@@ -650,7 +657,12 @@ onMounted(async () => {
                   <option v-for="(lbl, val) in statusLabel" :key="val" :value="val">{{ lbl }}</option>
                 </select>
               </td>
-              <td class="px-4 py-2 text-right whitespace-nowrap">
+              <td class="px-4 py-2 text-right whitespace-nowrap space-x-3">
+                <button
+                  class="text-gold-700 dark:text-gold-400 text-xs font-medium hover:underline"
+                  title="Abrir o formulário de NF já preenchido com os itens desta solicitação"
+                  @click="gerarNF(s)"
+                >Gerar NF</button>
                 <button
                   class="text-cpii-600 dark:text-cpii-300 text-xs hover:underline disabled:opacity-50"
                   :disabled="s._busy"
