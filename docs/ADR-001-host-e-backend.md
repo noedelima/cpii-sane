@@ -57,6 +57,19 @@ autorização no código. Endgame opcional: trocar para conexão `pg` direta pel
 5. *(Opcional, depois)* storage → R2. **Auth fica no Supabase** (mover auth é o
    passo mais disruptivo — adiado ou permanente).
 
+> **Nota (2026-07-10) — Fase 4 (passos 4–5) reavaliada.** A API efetivamente
+> implementada (ver `API-CAMADA.md`) **não usa service_role**: tanto o proxy
+> `/api/rest/*` quanto os endpoints dedicados encaminham o **JWT do próprio
+> usuário** ao PostgREST (com a anon key). A API chega ao banco pelo **mesmo papel
+> `authenticated`** que o navegador — o PostgREST não distingue as duas origens.
+> Consequência: **revogar os grants (passo 4) derrubaria a própria API**, e como a
+> **RLS já é a autoridade** nos dois caminhos, não acrescentaria segurança. Por
+> isso o passo 4 fica **suspenso**: só passa a fazer sentido junto do *endgame*
+> já previsto acima (conexão `pg` direta via pooler/Supavisor **ou** service_role
+> com a autorização no código da Function) — reescrita à parte, a planejar apenas
+> se houver motivo concreto (regra de negócio server-side, observabilidade ou
+> ocultar o schema). Até lá, a segurança permanece garantida pela RLS.
+
 ## Divisão de tarefas
 
 - **Assistente (lado código):** workflow do GitHub Actions para o SWA,
