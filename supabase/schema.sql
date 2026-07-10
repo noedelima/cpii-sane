@@ -2188,3 +2188,38 @@ $snf$;
 
 revoke all on function public.salvar_nota_fiscal(bigint, jsonb, jsonb, jsonb, uuid, text) from public;
 grant execute on function public.salvar_nota_fiscal(bigint, jsonb, jsonb, jsonb, uuid, text) to authenticated;
+
+
+-- =====================================================================
+-- 27. Protecao do ultimo administrador
+--     Garante que sempre exista ao menos um admin: bloqueia rebaixar o papel
+--     ou excluir o perfil do unico admin (inclusive via cascade de auth.users).
+--     security definer: a contagem precisa enxergar todos os perfis, sem RLS.
+-- =====================================================================
+create or replace function public.protege_ultimo_admin()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $pua$
+begin
+  if old.papel = 'admin'
+     and (tg_op = 'DELETE' or new.papel <> 'admin')
+     and not exists (
+       select 1 from public.perfis
+       where papel = 'admin' and id <> old.id
+     )
+  then
+    raise exception 'Operacao bloqueada: este e o unico administrador do sistema. Promova outro usuario a admin antes de alterar ou remover este perfil.';
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$pua$;
+
+drop trigger if exists trg_perfis_ultimo_admin on public.perfis;
+create trigger trg_perfis_ultimo_admin
+  before update or delete on public.perfis
+  for each row execute function public.protege_ultimo_admin();
