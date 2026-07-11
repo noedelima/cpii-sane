@@ -1,6 +1,6 @@
 # ADR-002 — Endgame do acesso a dados (camada de API): opções e recomendação
 
-**Status:** proposto (aguarda decisão) · **Data:** 2026-07 · **Decisor:** Noé (eng. responsável)
+**Status:** aceito — **Opção C** (manter a RLS como autoridade; endgame destrutivo arquivado até haver driver concreto) · **Data:** 2026-07 · **Decisor:** Noé (eng. responsável)
 
 ## Contexto
 
@@ -78,7 +78,7 @@ grants **não** são revogados.
 - **Contras:** não cria caminho **exclusivo** nem oculta o schema — o que só
   importa se um driver real aparecer.
 
-## Decisão proposta
+## Decisão (aceita)
 
 Adotar a **Opção C** como padrão. Só migrar para A ou B (endgame destrutivo)
 **se e quando** surgir um driver concreto (regra server-side, observabilidade
