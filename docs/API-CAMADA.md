@@ -127,8 +127,12 @@ detalhe/formulário e RPCs roteiam pelo proxy automaticamente.
 
 ### Pendências (refinamento — não bloqueia)
 
-- **Storage** (upload de PDFs) ainda fala **direto** com o Supabase (funciona pela
-  origem do SWA). Um proxy `/api/storage/*` é opcional.
+- **Storage** — há um proxy `/api/storage/*` (binário nos dois sentidos, ver
+  `api/src/functions/storage-proxy.js`) roteado pelo `supabase-js` quando
+  `VITE_USE_API=1` **e** `VITE_PROXY_STORAGE=1`. A flag vem **desligada** por
+  padrão (o upload segue direto pela origem do SWA); ligá-la exige validar o
+  upload de PDF em produção antes. O download por **URL assinada** é anônimo e
+  continua direto — não passa pelo proxy.
 - **Endpoints dedicados:** trocar chamadas do proxy por endpoints específicos
   (como `/api/dashboard`) onde quiser **desacoplar do schema** ou pôr regra de
   negócio/observabilidade. O proxy é o caminho universal; os específicos são a

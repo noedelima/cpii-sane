@@ -28,6 +28,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_BASE_PATH: "/"
           VITE_USE_API: "1"
+          # VITE_PROXY_STORAGE: "1"   # liga o proxy /api/storage/*; manter off ate validar upload/download em producao
         run: npm run build
 
       - name: Deploy to Azure Static Web Apps

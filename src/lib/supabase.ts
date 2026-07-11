@@ -12,6 +12,11 @@ if (!url || !anonKey) {
 }
 
 const RESTV1 = url + "/rest/v1/";
+const STORAGEV1 = url + "/storage/v1/";
+// O Storage tambem pode passar pela camada de API (upload/download de PDFs),
+// atras de uma flag separada (off por padrao). O download por URL assinada e
+// anonimo e segue direto ao Supabase, entao nao depende disto.
+const PROXY_STORAGE = import.meta.env.VITE_PROXY_STORAGE === "1";
 
 // Quando a camada de API está ligada (build do Azure SWA), as chamadas REST/PostgREST
 // do supabase-js (leituras, escritas e RPC) são roteadas para /api/rest/* — mesma
@@ -24,9 +29,13 @@ const RESTV1 = url + "/rest/v1/";
 const apiFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const u =
     typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-  if (!(USE_API && u.startsWith(RESTV1))) return fetch(input, init);
+  const isRest = USE_API && u.startsWith(RESTV1);
+  const isStorage = USE_API && PROXY_STORAGE && u.startsWith(STORAGEV1);
+  if (!isRest && !isStorage) return fetch(input, init);
 
-  const target = "/api/rest/" + u.slice(RESTV1.length);
+  const target = isRest
+    ? "/api/rest/" + u.slice(RESTV1.length)
+    : "/api/storage/" + u.slice(STORAGEV1.length);
   const buildHeaders = (token: string | null): Headers => {
     const headers = new Headers(init?.headers);
     headers.delete("Authorization");
