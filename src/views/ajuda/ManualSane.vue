@@ -229,6 +229,12 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
       referenciado por mais de uma NF). O botão <strong>“Baixar PDFs unificados”</strong> junta os PDFs dos recibos com anexo.
       O <strong>Instrumento de Cobrança</strong> (Contratos.gov) é anexado no cabeçalho, ao lado do PDF da NF.
     </p>
+    <p>
+      O card mostra também o <strong>valor de referência de cada recibo</strong> (quantidades lançadas × preço do
+      catálogo) e a <strong>soma dos recibos vinculados</strong>, comparada automaticamente com o valor total da NF:
+      <em>“Confere com o valor total ✓”</em> quando bate, ou a <em>diferença</em> quando não bate — sem precisar somar
+      recibo a recibo na mão. Reajustes (apostilamentos) ainda não refletidos no catálogo podem gerar pequenas diferenças.
+    </p>
 
     <hr />
 

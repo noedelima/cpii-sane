@@ -132,6 +132,13 @@ const itemSelecionadoNF = computed(
   () => itensDosGrupos.value.find((i) => i.id === novoItemId.value) ?? null
 );
 const recibosVinculadosIds = computed(() => new Set(recibosVinculados.value.map((r) => r.id)));
+// valor estimado por recibo vinculado (quantidades × preço de referência do catálogo,
+// mesma regra do "Total estimado" da Solicitação de NF)
+const valoresRecibos = ref<Map<number, number>>(new Map());
+const somaRecibos = computed(() =>
+  recibosVinculados.value.reduce((a, r) => a + (valoresRecibos.value.get(r.id) ?? 0), 0)
+);
+const difRecibosNF = computed(() => (valorTotal.value ?? 0) - somaRecibos.value);
 
 async function loadRefs() {
   const [g, f] = await Promise.all([
@@ -263,6 +270,37 @@ async function loadRecibosVinculados() {
     .map((x) => x.recibos)
     .filter(Boolean)
     .sort((a, b) => (a!.data_recebimento < b!.data_recebimento ? -1 : 1)) as ReciboRow[];
+  await calcularValoresRecibos();
+}
+
+/** Soma os itens de cada recibo vinculado pelo preço de referência do catálogo. */
+async function calcularValoresRecibos() {
+  valoresRecibos.value = new Map();
+  const ids = recibosVinculados.value.map((r) => r.id);
+  if (!ids.length) return;
+  const { data: ris } = await supabase
+    .from("recibos_itens")
+    .select("recibo_id, item_id, quantidade")
+    .in("recibo_id", ids);
+  type RI = { recibo_id: number; item_id: number; quantidade: number };
+  const linhas = (ris as RI[] | null) ?? [];
+  if (!linhas.length) return;
+  const itemIds = Array.from(new Set(linhas.map((l) => l.item_id)));
+  const { data: its } = await supabase
+    .from("itens")
+    .select("id, preco_unitario")
+    .in("id", itemIds);
+  const preco = new Map(
+    (((its as { id: number; preco_unitario: number }[] | null) ?? [])).map((i) => [
+      i.id,
+      Number(i.preco_unitario),
+    ])
+  );
+  const m = new Map<number, number>();
+  for (const l of linhas) {
+    m.set(l.recibo_id, (m.get(l.recibo_id) ?? 0) + Number(l.quantidade) * (preco.get(l.item_id) ?? 0));
+  }
+  valoresRecibos.value = m;
 }
 
 async function buscarRecibosCandidatos() {
@@ -1143,6 +1181,7 @@ onMounted(async () => {
               <th class="text-left py-1">Campus</th>
               <th class="text-left py-1">Pedido</th>
               <th class="text-left py-1">Status</th>
+              <th class="text-right py-1">Valor (ref.)</th>
               <th class="text-left py-1">PDF</th>
               <th class="py-1"></th>
             </tr>
@@ -1157,6 +1196,9 @@ onMounted(async () => {
               <td class="py-2">{{ r.campi?.nome ?? "—" }}</td>
               <td class="py-2 whitespace-nowrap">{{ fmtDate(r.data_recebimento) }}</td>
               <td class="py-2 capitalize">{{ r.status }}</td>
+              <td class="py-2 text-right tabular-nums whitespace-nowrap">
+                {{ valoresRecibos.has(r.id) ? fmtMoney(valoresRecibos.get(r.id)) : "—" }}
+              </td>
               <td class="py-2">{{ r.link_pdf ? "anexado" : "—" }}</td>
               <td class="py-2 text-right">
                 <button type="button" class="text-red-600 dark:text-red-400 text-xs hover:underline" @click="desvincularRecibo(r)">
@@ -1169,6 +1211,27 @@ onMounted(async () => {
         <p v-else class="text-sm text-slate-500 dark:text-slate-400">
           Nenhum recibo associado a esta NF ainda — associe abaixo (recibos do mesmo grupo).
         </p>
+
+        <template v-if="recibosVinculados.length">
+          <p class="text-sm text-slate-600 dark:text-slate-300 border-t border-slate-200 dark:border-slate-700 pt-3">
+            Soma dos recibos: <strong class="tabular-nums">{{ fmtMoney(somaRecibos) }}</strong> ·
+            Valor da NF: <strong class="tabular-nums">{{ valorTotal == null ? "—" : fmtMoney(valorTotal) }}</strong> ·
+            <span v-if="valorTotal == null" class="text-amber-600 dark:text-amber-400">
+              informe o valor total da NF para comparar
+            </span>
+            <span
+              v-else
+              :class="Math.abs(difRecibosNF) < 0.01 ? 'text-green-700 dark:text-green-300' : 'text-amber-600 dark:text-amber-400'"
+            >
+              {{ Math.abs(difRecibosNF) < 0.01 ? "Confere com o valor total ✓" : `Diferença de ${fmtMoney(difRecibosNF)}` }}
+            </span>
+          </p>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Soma estimada: quantidades lançadas nos recibos × preço de referência do catálogo.
+            Recibos sem itens lançados aparecem com “—” e não entram na soma; reajustes
+            (apostilamentos) ainda não refletidos no catálogo podem gerar pequenas diferenças.
+          </p>
+        </template>
 
         <div class="border-t border-slate-200 dark:border-slate-700 pt-4 space-y-2">
           <label class="label">Associar recibos do(s) grupo(s)</label>
