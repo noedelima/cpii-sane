@@ -2223,3 +2223,41 @@ drop trigger if exists trg_perfis_ultimo_admin on public.perfis;
 create trigger trg_perfis_ultimo_admin
   before update or delete on public.perfis
   for each row execute function public.protege_ultimo_admin();
+
+
+-- =====================================================================
+-- 28. Exclusao de usuario pelo administrador
+--     Remove a conta do Auth; public.perfis sai em cascata (e com ele o
+--     vinculo de campi). Protecoes: so admin executa, ninguem exclui a si
+--     mesmo, e o gatilho protege_ultimo_admin aborta a remocao do unico admin.
+--     O historico e preservado: as FKs de usuario sao ON DELETE SET NULL e os
+--     documentos guardam nome/matricula em colunas snapshot (ex.: atestes).
+-- =====================================================================
+create or replace function public.admin_delete_user(target_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $adu$
+begin
+  if coalesce(public.current_papel(), '') <> 'admin' then
+    raise exception 'Apenas administradores podem excluir usuarios.';
+  end if;
+  if target_user_id = auth.uid() then
+    raise exception 'Voce nao pode excluir o proprio usuario.';
+  end if;
+  if not exists (select 1 from public.perfis where id = target_user_id) then
+    raise exception 'Usuario nao encontrado.';
+  end if;
+
+  -- vinculos de campi saem antes (idempotente mesmo se a FK ja for cascade)
+  delete from public.perfis_campi where perfil_id = target_user_id;
+  -- a exclusao no Auth cascateia para public.perfis, onde o gatilho
+  -- protege_ultimo_admin ainda pode abortar toda a transacao.
+  delete from auth.users where id = target_user_id;
+end;
+$adu$;
+
+revoke all on function public.admin_delete_user(uuid) from public;
+revoke execute on function public.admin_delete_user(uuid) from anon;
+grant execute on function public.admin_delete_user(uuid) to authenticated;

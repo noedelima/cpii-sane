@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { supabase } from "@/lib/supabase";
+import { useAuthStore } from "@/stores/auth";
 import type { Campus, Papel, Perfil } from "@/types/database";
 
 interface LinhaPerfil extends Perfil {
   _saving?: boolean;
   _savedAt?: number;
 }
+
+const auth = useAuthStore();
 
 const perfis = ref<LinhaPerfil[]>([]);
 const campi = ref<Campus[]>([]);
@@ -22,12 +25,43 @@ const papeis: { value: Papel; label: string; hint: string }[] = [
   { value: "outros", label: "Outros", hint: "somente visualização" },
 ];
 
+// Snapshot do que veio do banco: habilita "Salvar" apenas na linha alterada.
+const originais = ref<Map<string, string>>(new Map());
+const chaveEdicao = (p: LinhaPerfil) =>
+  [p.nome ?? "", p.matricula_siape ?? "", p.papel].join("|");
+const mudou = (p: LinhaPerfil) => originais.value.get(p.id) !== chaveEdicao(p);
+
+const souEu = (p: LinhaPerfil) => p.id === auth.user?.id;
+
 const campusNome = (id: number) => campi.value.find((c) => c.id === id)?.nome ?? `#${id}`;
 function nomesCampi(perfilId: string): string {
   const ids = campiPorPerfil.value.get(perfilId) ?? [];
   if (!ids.length) return "—";
   return ids.map(campusNome).join(", ");
 }
+
+// --- busca e filtro ---
+const busca = ref("");
+const filtroPapel = ref<Papel | "">("");
+
+const perfisFiltrados = computed(() => {
+  const t = busca.value.trim().toLowerCase();
+  return perfis.value.filter((p) => {
+    if (filtroPapel.value && p.papel !== filtroPapel.value) return false;
+    if (!t) return true;
+    return (
+      (p.nome ?? "").toLowerCase().includes(t) ||
+      (p.email ?? "").toLowerCase().includes(t) ||
+      (p.matricula_siape ?? "").toLowerCase().includes(t)
+    );
+  });
+});
+
+const contagemPapel = computed(() => {
+  const m = new Map<string, number>();
+  for (const p of perfis.value) m.set(p.papel, (m.get(p.papel) ?? 0) + 1);
+  return m;
+});
 
 async function load() {
   loading.value = true;
@@ -39,6 +73,7 @@ async function load() {
   ]);
   if (p.error) error.value = p.error.message;
   perfis.value = (p.data as LinhaPerfil[] | null) ?? [];
+  originais.value = new Map(perfis.value.map((x) => [x.id, chaveEdicao(x)]));
   campi.value = (c.data as Campus[] | null) ?? [];
   campiPorPerfil.value = new Map();
   for (const r of ((pc.data as { perfil_id: string; campus_id: number }[] | null) ?? [])) {
@@ -239,6 +274,32 @@ async function confirmarPwd() {
   pwdDone.value = true;
 }
 
+// --- exclusão de usuário (admin) ---
+const delUser = ref<LinhaPerfil | null>(null);
+const delSaving = ref(false);
+const delError = ref<string | null>(null);
+
+function abrirExcluir(linha: LinhaPerfil) {
+  delUser.value = linha;
+  delError.value = null;
+}
+
+async function confirmarExcluir() {
+  if (!delUser.value) return;
+  delSaving.value = true;
+  delError.value = null;
+  const { error: err } = await supabase.rpc("admin_delete_user", {
+    target_user_id: delUser.value.id,
+  });
+  delSaving.value = false;
+  if (err) {
+    delError.value = err.message;
+    return;
+  }
+  delUser.value = null;
+  await load();
+}
+
 async function salvar(linha: LinhaPerfil) {
   linha._saving = true;
   error.value = null;
@@ -255,6 +316,7 @@ async function salvar(linha: LinhaPerfil) {
     error.value = `Falha ao salvar ${linha.email ?? linha.nome}: ${err.message}`;
     return;
   }
+  originais.value.set(linha.id, chaveEdicao(linha));
   linha._savedAt = Date.now();
   setTimeout(() => (linha._savedAt = undefined), 2000);
 }
@@ -263,17 +325,36 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8">
-    <div class="mb-6 flex flex-wrap items-start justify-between gap-3">
+  <div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-8">
+    <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold">Usuários</h1>
-        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Novos usuários entram como <strong>Outros</strong> (somente visualização) ao se
-          cadastrarem pelo login. Defina aqui o papel, a matrícula SIAPE (usada na
-          assinatura do ateste) e, para o papel Campus, os campi vinculados (um ou mais).
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
+          Defina o papel, a matrícula SIAPE (usada na assinatura do ateste) e, para o
+          papel Campus, os campi vinculados. Linhas alteradas ficam destacadas até salvar.
         </p>
       </div>
-      <button class="btn-primary" @click="abrirNovo">+ Novo usuário</button>
+      <button class="btn-primary shrink-0" @click="abrirNovo">+ Novo usuário</button>
+    </div>
+
+    <!-- Busca e filtro -->
+    <div class="mb-4 flex flex-wrap items-end gap-3">
+      <div class="grow max-w-sm">
+        <label class="label">Buscar</label>
+        <input v-model="busca" type="search" class="input" placeholder="Nome, e-mail ou SIAPE…" />
+      </div>
+      <div>
+        <label class="label">Papel</label>
+        <select v-model="filtroPapel" class="input w-44">
+          <option value="">Todos</option>
+          <option v-for="op in papeis" :key="op.value" :value="op.value">
+            {{ op.label }} ({{ contagemPapel.get(op.value) ?? 0 }})
+          </option>
+        </select>
+      </div>
+      <p class="pb-2 text-sm text-slate-500 dark:text-slate-400">
+        {{ perfisFiltrados.length }} de {{ perfis.length }} usuário(s)
+      </p>
     </div>
 
     <div v-if="error" class="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300 mb-4">
@@ -285,24 +366,33 @@ onMounted(load);
       <div v-else-if="!perfis.length" class="p-6 text-center text-slate-500 dark:text-slate-400">
         Nenhum usuário cadastrado ainda.
       </div>
-      <table v-else class="w-full text-sm min-w-[46rem]">
+      <div v-else-if="!perfisFiltrados.length" class="p-6 text-center text-slate-500 dark:text-slate-400">
+        Nenhum usuário para esta busca.
+      </div>
+      <table v-else class="w-full text-sm min-w-[58rem]">
         <thead class="bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs">
           <tr>
-            <th class="px-4 py-2 text-left">Nome</th>
-            <th class="px-4 py-2 text-left">E-mail</th>
-            <th class="px-4 py-2 text-left">SIAPE</th>
-            <th class="px-4 py-2 text-left">Papel</th>
-            <th class="px-4 py-2 text-left">Campi</th>
-            <th class="px-4 py-2"></th>
+            <th class="px-3 py-2 text-left">Nome</th>
+            <th class="px-3 py-2 text-left">E-mail</th>
+            <th class="px-3 py-2 text-left w-24">SIAPE</th>
+            <th class="px-3 py-2 text-left w-32">Papel</th>
+            <th class="px-3 py-2 text-left">Campi</th>
+            <th class="px-3 py-2 text-right">Ações</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-          <tr v-for="p in perfis" :key="p.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/40 align-top">
-            <td class="px-4 py-2 min-w-[12rem]">
+          <tr
+            v-for="p in perfisFiltrados"
+            :key="p.id"
+            class="hover:bg-slate-50 dark:hover:bg-slate-700/40"
+            :class="mudou(p) ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''"
+          >
+            <td class="px-3 py-2 min-w-[12rem]">
               <input v-model="p.nome" type="text" class="input" />
+              <span v-if="souEu(p)" class="text-xs text-gold-700 dark:text-gold-400 font-medium">você</span>
             </td>
-            <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{ p.email ?? "—" }}</td>
-            <td class="px-4 py-2 w-32">
+            <td class="px-3 py-2 text-slate-600 dark:text-slate-300 break-all">{{ p.email ?? "—" }}</td>
+            <td class="px-3 py-2">
               <input
                 v-model="p.matricula_siape"
                 type="text"
@@ -311,38 +401,87 @@ onMounted(load);
                 title="Matrícula SIAPE (sai na assinatura do ateste)"
               />
             </td>
-            <td class="px-4 py-2">
+            <td class="px-3 py-2">
               <select v-model="p.papel" class="input">
-                <option v-for="op in papeis" :key="op.value" :value="op.value">
-                  {{ op.label }} — {{ op.hint }}
-                </option>
+                <option v-for="op in papeis" :key="op.value" :value="op.value">{{ op.label }}</option>
               </select>
             </td>
-            <td class="px-4 py-2 min-w-[12rem]">
+            <td class="px-3 py-2 min-w-[11rem]">
               <div class="flex items-center gap-2">
-                <span class="text-slate-600 dark:text-slate-300 truncate max-w-[10rem]" :title="nomesCampi(p.id)">
+                <span class="text-slate-600 dark:text-slate-300 truncate max-w-[9rem]" :title="nomesCampi(p.id)">
                   {{ nomesCampi(p.id) }}
                 </span>
                 <button class="btn-ghost text-xs shrink-0" @click="abrirCampi(p)">Editar</button>
               </div>
             </td>
-            <td class="px-4 py-2 text-right whitespace-nowrap space-x-2">
-              <button class="btn-ghost" @click="abrirPwd(p)">Definir senha</button>
-              <button class="btn-secondary" :disabled="p._saving" @click="salvar(p)">
-                {{ p._saving ? "Salvando…" : p._savedAt ? "Salvo ✓" : "Salvar" }}
-              </button>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              <div class="inline-flex items-center gap-3">
+                <button class="text-xs text-cpii-600 dark:text-cpii-300 hover:underline" @click="abrirPwd(p)">
+                  Senha
+                </button>
+                <button
+                  class="text-xs text-red-600 dark:text-red-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                  :disabled="souEu(p)"
+                  :title="souEu(p) ? 'Você não pode excluir o próprio usuário' : 'Excluir usuário'"
+                  @click="abrirExcluir(p)"
+                >
+                  Excluir
+                </button>
+                <button class="btn-secondary text-xs" :disabled="p._saving || !mudou(p)" @click="salvar(p)">
+                  {{ p._saving ? "Salvando…" : p._savedAt ? "Salvo ✓" : "Salvar" }}
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <p class="text-xs text-slate-500 dark:text-slate-400 mt-3">
-      Use <strong>+ Novo usuário</strong> para cadastrar um servidor com senha inicial
-      (nenhum e-mail é enviado). <strong>Definir senha</strong> redefine o acesso de quem
-      já existe. Em <strong>Campi</strong>, vincule um ou mais campi a um perfil — o usuário
-      Campus poderá lançar recibos para qualquer campus vinculado.
-    </p>
+    <div class="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+      <p>
+        <strong>Papéis:</strong>
+        <span v-for="(op, i) in papeis" :key="op.value">{{ i ? " · " : " " }}{{ op.label }} — {{ op.hint }}</span>
+      </p>
+      <p>
+        <strong>+ Novo usuário</strong> cadastra com senha inicial (nenhum e-mail é enviado).
+        <strong>Senha</strong> redefine o acesso de quem já existe. O sistema sempre exige ao
+        menos um administrador.
+      </p>
+    </div>
+
+    <!-- Modal: excluir usuário -->
+    <div
+      v-if="delUser"
+      class="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 dark:bg-black/70 px-4"
+      @click.self="delUser = null"
+    >
+      <div class="card w-full max-w-md p-5 space-y-4">
+        <h2 class="font-semibold text-red-700 dark:text-red-400">Excluir usuário</h2>
+        <p class="text-sm text-slate-700 dark:text-slate-200">
+          Excluir definitivamente <strong>{{ delUser.nome }}</strong>
+          ({{ delUser.email ?? "sem e-mail" }})?
+        </p>
+        <ul class="text-xs text-slate-600 dark:text-slate-300 list-disc pl-5 space-y-1">
+          <li>A conta perde o acesso imediatamente e <strong>não pode ser desfeito</strong>.</li>
+          <li>
+            O histórico é preservado: recibos, NFs e atestes continuam registrados, com o
+            nome e a matrícula já gravados nos documentos.
+          </li>
+          <li>Se este for o único administrador, o sistema bloqueará a exclusão.</li>
+        </ul>
+        <p v-if="delError" class="text-sm text-red-600 dark:text-red-400">{{ delError }}</p>
+        <div class="flex justify-end gap-2">
+          <button class="btn-ghost" @click="delUser = null">Cancelar</button>
+          <button
+            class="btn bg-red-600 text-white hover:bg-red-700"
+            :disabled="delSaving"
+            @click="confirmarExcluir"
+          >
+            {{ delSaving ? "Excluindo…" : "Excluir definitivamente" }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Modal: novo usuário -->
     <div
