@@ -2261,3 +2261,72 @@ $adu$;
 revoke all on function public.admin_delete_user(uuid) from public;
 revoke execute on function public.admin_delete_user(uuid) from anon;
 grant execute on function public.admin_delete_user(uuid) to authenticated;
+
+
+-- =====================================================================
+-- 29. Consumo por item por empenho (planejamento de reforco)
+-- =====================================================================
+-- Saldo por item de cada empenho: empenhado (empenhos_itens) x consumido
+-- (nf_itens com empenho_id, de NFs nao excluidas). security_invoker: respeita
+-- a RLS de quem consulta.
+create or replace view public.vw_empenho_item_saldo
+with (security_invoker = on) as
+select
+  e.id            as empenho_id,
+  e.numero        as empenho,
+  e.data_emissao,
+  e.status,
+  i.id            as item_id,
+  i.codigo_catmat,
+  i.descricao,
+  i.unidade,
+  i.grupo_id,
+  g.numero_romano as grupo,
+  ei.quantidade::numeric(14,4)                                                   as qtd_empenhada,
+  coalesce(ei.valor_unitario, i.preco_unitario)::numeric(14,4)                   as valor_unitario,
+  (ei.quantidade * coalesce(ei.valor_unitario, i.preco_unitario))::numeric(14,2) as valor_empenhado,
+  coalesce(c.qtd_consumida, 0)::numeric(14,4)                                    as qtd_consumida,
+  coalesce(c.valor_consumido, 0)::numeric(14,2)                                  as valor_consumido,
+  (ei.quantidade - coalesce(c.qtd_consumida, 0))::numeric(14,4)                  as saldo_qtd
+from public.empenhos e
+join public.empenhos_itens ei on ei.empenho_id = e.id
+join public.itens i           on i.id = ei.item_id
+left join public.grupos g     on g.id = i.grupo_id
+left join (
+  select ni.empenho_id, ni.item_id,
+         sum(ni.quantidade)                                  as qtd_consumida,
+         sum(ni.quantidade * coalesce(ni.valor_unitario, 0)) as valor_consumido
+  from public.nf_itens ni
+  join public.notas_fiscais nf on nf.id = ni.nf_id and nf.deleted_at is null
+  where ni.empenho_id is not null
+  group by ni.empenho_id, ni.item_id
+) c on c.empenho_id = e.id and c.item_id = ei.item_id
+where e.deleted_at is null;
+
+-- Serie de consumo por item por empenho, datada pela ENTREGA da NF, com a
+-- semana (segunda-feira) e o mes ja calculados para a tela alternar a
+-- granularidade sem duplicar linhas.
+create or replace view public.vw_empenho_item_consumo
+with (security_invoker = on) as
+select
+  ni.empenho_id,
+  e.numero          as empenho,
+  ni.item_id,
+  i.codigo_catmat,
+  i.descricao,
+  i.unidade,
+  i.grupo_id,
+  nf.id             as nf_id,
+  nf.numero         as nf_numero,
+  nf.data_entrega,
+  (date_trunc('week', nf.data_entrega))::date as semana,
+  to_char(nf.data_entrega, 'YYYY-MM')         as mes,
+  sum(ni.quantidade)::numeric(14,4)                                  as quantidade,
+  sum(ni.quantidade * coalesce(ni.valor_unitario, 0))::numeric(14,2) as valor
+from public.nf_itens ni
+join public.notas_fiscais nf on nf.id = ni.nf_id and nf.deleted_at is null
+join public.empenhos e       on e.id = ni.empenho_id and e.deleted_at is null
+join public.itens i          on i.id = ni.item_id
+where ni.empenho_id is not null
+group by ni.empenho_id, e.numero, ni.item_id, i.codigo_catmat, i.descricao,
+         i.unidade, i.grupo_id, nf.id, nf.numero, nf.data_entrega;

@@ -76,6 +76,7 @@ const navItems = computed(() => {
     { to: "/grupos", label: "Grupos" },
   ];
   if (auth.isSane) {
+    items.push({ to: "/consumo", label: "Consumo" });
     items.push({ to: "/solicitar-nf", label: "Solicitar NF" });
     items.push({ to: "/ateste", label: "Ateste" });
   }
