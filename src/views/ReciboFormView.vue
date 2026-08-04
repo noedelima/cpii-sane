@@ -58,11 +58,18 @@ const aviso = ref<string | null>(null);
 
 /** Campus dono do recibo (pode incluir itens, não edita o cabeçalho). */
 const isCampusDono = computed(
-  () => auth.papel === "campus" && auth.perfil?.campus_id === campusId.value
+  () =>
+    auth.papel === "campus" &&
+    campusId.value != null &&
+    auth.campiIds.includes(campusId.value)
 );
 /** Pode editar cabeçalho/status/NF: SANE e admin. */
 const podeEditarCabecalho = computed(() => !editMode.value || auth.isSane);
 const podeAdicionarItens = computed(() => auth.isSane || isCampusDono.value || !editMode.value);
+// Campus so enxerga (e escolhe) os campi vinculados a ele; SANE/admin veem todos.
+const campiDisponiveis = computed(() =>
+  auth.papel === "campus" ? campi.value.filter((c) => auth.campiIds.includes(c.id)) : campi.value
+);
 
 const itemAtual = computed(() => itensDoGrupo.value.find((i) => i.id === itemId.value));
 const totalEstimado = computed(() =>
@@ -76,8 +83,8 @@ async function loadReferenceData() {
   ]);
   campi.value = (c.data as Campus[] | null) ?? [];
   grupos.value = (g.data as Grupo[] | null) ?? [];
-  if (!editMode.value && auth.papel === "campus" && auth.perfil?.campus_id) {
-    campusId.value = auth.perfil.campus_id;
+  if (!editMode.value && auth.papel === "campus" && !campusId.value) {
+    campusId.value = auth.campiIds[0] ?? auth.perfil?.campus_id ?? null;
   }
 }
 
@@ -365,10 +372,10 @@ onMounted(async () => {
               v-model="campusId"
               class="input"
               required
-              :disabled="auth.papel === 'campus' || !podeEditarCabecalho"
+              :disabled="!podeEditarCabecalho || (auth.papel === 'campus' && campiDisponiveis.length <= 1)"
             >
               <option :value="null" disabled>Selecione…</option>
-              <option v-for="c in campi" :key="c.id" :value="c.id">{{ c.nome }}</option>
+              <option v-for="c in campiDisponiveis" :key="c.id" :value="c.id">{{ c.nome }}</option>
             </select>
           </div>
           <div>

@@ -402,6 +402,17 @@ create or replace function public.current_campus_id()
 returns bigint language sql stable security definer set search_path = public
 as $cc$ select campus_id from public.perfis where id = auth.uid() $cc$;
 
+-- Conjunto de campi do usuario (multi-campus): os vinculados em perfis_campi
+-- MAIS o campus principal (perfis.campus_id), para nao perder acesso de quem
+-- ainda nao tem linha em perfis_campi. Usado nas policies de recibos.
+create or replace function public.current_campi()
+returns setof bigint language sql stable security definer set search_path = public
+as $ccs$
+  select campus_id from public.perfis where id = auth.uid() and campus_id is not null
+  union
+  select campus_id from public.perfis_campi where perfil_id = auth.uid()
+$ccs$;
+
 -- Matriz de acesso:
 --   admin  -> tudo (usuários, cadastros, deletes)
 --   sane   -> escreve itens, empenhos, empenhos_grupos, NFs, nf_itens, nf_empenhos
@@ -475,7 +486,7 @@ drop policy if exists p_recibos_insert on public.recibos;
 create policy p_recibos_insert on public.recibos for insert to authenticated
   with check (
     public.current_papel() in ('sane','admin')
-    or (public.current_papel() = 'campus' and campus_id = public.current_campus_id())
+    or (public.current_papel() = 'campus' and campus_id in (select public.current_campi()))
   );
 drop policy if exists p_recibos_update on public.recibos;
 create policy p_recibos_update on public.recibos for update to authenticated
@@ -491,7 +502,7 @@ create policy p_recibos_itens_insert on public.recibos_itens for insert to authe
       public.current_papel() = 'campus'
       and exists (
         select 1 from public.recibos r
-        where r.id = recibo_id and r.campus_id = public.current_campus_id()
+        where r.id = recibo_id and r.campus_id in (select public.current_campi())
       )
     )
   );

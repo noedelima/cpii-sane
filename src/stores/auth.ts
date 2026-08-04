@@ -7,6 +7,8 @@ interface AuthState {
   session: Session | null;
   user: User | null;
   perfil: Perfil | null;
+  /** Campi vinculados ao usuario (perfis_campi) + o principal. Papel campus. */
+  campiIds: number[];
   loading: boolean;
   _initPromise: Promise<void> | null;
 }
@@ -16,6 +18,7 @@ export const useAuthStore = defineStore("auth", {
     session: null,
     user: null,
     perfil: null,
+    campiIds: [],
     loading: true,
     _initPromise: null,
   }),
@@ -55,6 +58,7 @@ export const useAuthStore = defineStore("auth", {
     async loadPerfil() {
       if (!this.user) {
         this.perfil = null;
+        this.campiIds = [];
         return;
       }
       const { data, error } = await supabase
@@ -65,9 +69,19 @@ export const useAuthStore = defineStore("auth", {
       if (error) {
         console.error("[auth] falha ao carregar perfil:", error.message);
         this.perfil = null;
+        this.campiIds = [];
         return;
       }
       this.perfil = (data as Perfil | null) ?? null;
+      // Conjunto de campi vinculados (multi-campus) + o principal, para o papel campus.
+      const ids = new Set<number>();
+      if (this.perfil?.campus_id) ids.add(this.perfil.campus_id);
+      const { data: pc } = await supabase
+        .from("perfis_campi")
+        .select("campus_id")
+        .eq("perfil_id", this.user.id);
+      for (const r of ((pc as { campus_id: number }[] | null) ?? [])) ids.add(r.campus_id);
+      this.campiIds = [...ids];
     },
     async signInWithPassword(email: string, password: string) {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
