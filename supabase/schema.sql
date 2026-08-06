@@ -2436,3 +2436,21 @@ select
 from public.recibos_itens ri
 join public.recibos r on r.id = ri.recibo_id
 join public.itens i   on i.id = ri.item_id;
+
+-- Backfill do preco ORIGINAL: itens que ainda nao tem historico recebem o preco
+-- atual do catalogo datado no inicio da vigencia da ata. Sem isto, ao registrar
+-- o primeiro apostilamento os recibos ANTERIORES ao reajuste passariam a exibir
+-- o preco novo (nao haveria preco antigo a que recorrer). Idempotente: so insere
+-- para item sem nenhum registro em itens_precos, entao deve rodar ANTES de
+-- lancar novos apostilamentos.
+insert into public.itens_precos (item_id, preco_unitario, vigencia_inicio, referencia)
+select
+  i.id,
+  i.preco_unitario,
+  coalesce(g.vigencia_inicio, date '2025-01-01'),
+  'Preco original da ata (registro inicial)'
+from public.itens i
+join public.grupos g on g.id = i.grupo_id
+where coalesce(i.preco_unitario, 0) > 0
+  and not exists (select 1 from public.itens_precos p where p.item_id = i.id)
+on conflict (item_id, vigencia_inicio) do nothing;
