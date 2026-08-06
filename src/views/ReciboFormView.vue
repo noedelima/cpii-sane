@@ -42,6 +42,8 @@ const dataHora = (ts: string | null) => (ts ? new Date(ts).toLocaleString("pt-BR
 const itemId = ref<number | null>(null);
 const quantidade = ref<number | null>(null);
 const linhas = ref<LinhaItem[]>([]);
+// quantidades como vieram do banco, para gravar so o que o usuario alterou
+const qtdOriginais = ref<Map<number, number>>(new Map());
 
 // vínculo com NF (SANE)
 const nfId = ref<number | null>(null);
@@ -65,7 +67,19 @@ const isCampusDono = computed(
 );
 /** Pode editar cabeçalho/status/NF: SANE e admin. */
 const podeEditarCabecalho = computed(() => !editMode.value || auth.isSane);
-const podeAdicionarItens = computed(() => auth.isSane || isCampusDono.value || !editMode.value);
+/** Recibo que ja virou pagamento (NF vinculada ou status alem de pendente): so a SANE altera. */
+const reciboTravado = computed(
+  () =>
+    editMode.value &&
+    (nfId.value != null || !["rascunho", "pendente"].includes(status.value))
+);
+/** Campus dono corrige o proprio recibo enquanto ele nao estiver travado. */
+const podeCampusEditar = computed(() => isCampusDono.value && !reciboTravado.value);
+/** Dados do recibo (numero, data, observacoes, PDF e itens): SANE sempre; campus enquanto editavel. */
+const podeEditarDados = computed(
+  () => !editMode.value || auth.isSane || podeCampusEditar.value
+);
+const podeAdicionarItens = computed(() => podeEditarDados.value);
 // Campus so enxerga (e escolhe) os campi vinculados a ele; SANE/admin veem todos.
 const campiDisponiveis = computed(() =>
   auth.papel === "campus" ? campi.value.filter((c) => auth.campiIds.includes(c.id)) : campi.value
@@ -142,6 +156,9 @@ async function loadRecibo() {
     quantidade: Number(x.quantidade),
     preco_unitario: Number(x.itens?.preco_unitario ?? 0),
   }));
+  qtdOriginais.value = new Map(
+    linhas.value.filter((l) => l.id != null).map((l) => [l.id as number, l.quantidade])
+  );
 
   await Promise.all([loadItensDoGrupo(), loadNFAtual(), loadNFCandidatas()]);
   loading.value = false;
@@ -245,8 +262,9 @@ async function adicionarItem() {
 async function removerLinha(idx: number) {
   const l = linhas.value[idx];
   if (l.id) {
-    if (!auth.isSane) {
-      error.value = "Apenas a SANE remove itens já gravados.";
+    if (!auth.isSane && !podeCampusEditar.value) {
+      error.value =
+        "Este recibo já foi processado pela SANE (NF vinculada ou pagamento) — fale com a SANE para corrigir.";
       return;
     }
     if (!confirm(`Remover ${l.descricao}?`)) return;
@@ -282,19 +300,31 @@ async function salvar() {
   saving.value = true;
   try {
     if (editMode.value && reciboId.value) {
+      const payload: Record<string, unknown> = {
+        numero: numero.value,
+        data_recebimento: dataRecebimento.value,
+        campus_id: campusId.value,
+        grupo_id: grupoId.value,
+        observacoes: observacoes.value || null,
+        link_pdf: linkPdf.value,
+      };
+      // status e da SANE (o gatilho no banco tambem reverte se vier de campus)
+      if (auth.isSane) payload.status = status.value;
       const { error: e1 } = await supabase
         .from("recibos")
-        .update({
-          numero: numero.value,
-          data_recebimento: dataRecebimento.value,
-          campus_id: campusId.value,
-          grupo_id: grupoId.value,
-          observacoes: observacoes.value || null,
-          link_pdf: linkPdf.value,
-          status: status.value,
-        })
+        .update(payload)
         .eq("id", reciboId.value);
       if (e1) throw e1;
+      // quantidades corrigidas nos itens ja gravados
+      for (const l of linhas.value) {
+        if (l.id == null) continue;
+        if (qtdOriginais.value.get(l.id) === l.quantidade) continue;
+        const { error: e2 } = await supabase
+          .from("recibos_itens")
+          .update({ quantidade: l.quantidade })
+          .eq("id", l.id);
+        if (e2) throw e2;
+      }
       router.push("/recibos");
     } else {
       const { data: rec, error: e1 } = await supabase
@@ -357,11 +387,11 @@ onMounted(async () => {
         <div class="grid sm:grid-cols-2 gap-4">
           <div>
             <label class="label">Nº do recibo</label>
-            <input v-model="numero" type="text" class="input" required :disabled="!podeEditarCabecalho" />
+            <input v-model="numero" type="text" class="input" required :disabled="!podeEditarDados" />
           </div>
           <div>
             <label class="label">Data do pedido</label>
-            <input v-model="dataRecebimento" type="date" class="input" required :disabled="!podeEditarCabecalho" />
+            <input v-model="dataRecebimento" type="date" class="input" required :disabled="!podeEditarDados" />
             <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Data do pedido a que o recibo se refere. Se a entrega ocorreu em outro dia, registre nas observações.
             </p>
@@ -405,9 +435,21 @@ onMounted(async () => {
         </div>
         <div>
           <label class="label">Observações (opcional)</label>
-          <textarea v-model="observacoes" rows="2" class="input" :disabled="!podeEditarCabecalho && !isCampusDono"></textarea>
+          <textarea v-model="observacoes" rows="2" class="input" :disabled="!podeEditarDados"></textarea>
         </div>
-        <PdfUpload v-model="linkPdf" bucket="pdfs-recibos" label="PDF do recibo (opcional)" />
+        <PdfUpload
+          v-model="linkPdf"
+          bucket="pdfs-recibos"
+          label="PDF do recibo (opcional)"
+          :disabled="!podeEditarDados"
+        />
+        <p
+          v-if="editMode && isCampusDono && reciboTravado"
+          class="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-md p-2"
+        >
+          Este recibo já foi processado pela SANE (nota fiscal vinculada ou pagamento registrado),
+          por isso não pode mais ser alterado aqui. Para corrigir algo, fale com a SANE.
+        </p>
       </div>
 
       <!-- Vínculo com NF (SANE) -->
@@ -495,13 +537,23 @@ onMounted(async () => {
             <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
               <tr v-for="(l, idx) in linhas" :key="l.id ?? `n${idx}`">
                 <td class="py-2">{{ l.descricao }}</td>
-                <td class="py-2 text-right tabular-nums">{{ l.quantidade }}</td>
+                <td class="py-2 text-right tabular-nums w-28">
+                  <input
+                    v-if="podeEditarDados"
+                    v-model.number="l.quantidade"
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    class="input py-1 text-right tabular-nums"
+                  />
+                  <span v-else>{{ l.quantidade }}</span>
+                </td>
                 <td class="py-2 pl-3">{{ l.unidade }}</td>
                 <td class="py-2 text-right tabular-nums">{{ fmtMoney(l.preco_unitario) }}</td>
                 <td class="py-2 text-right tabular-nums">{{ fmtMoney(l.quantidade * (l.preco_unitario ?? 0)) }}</td>
                 <td class="py-2 text-right">
                   <button
-                    v-if="!l.id || auth.isSane"
+                    v-if="!l.id || auth.isSane || podeCampusEditar"
                     @click="removerLinha(idx)"
                     class="text-red-600 dark:text-red-400 text-xs hover:underline"
                   >remover</button>
@@ -540,7 +592,7 @@ onMounted(async () => {
         <div class="flex gap-2">
           <button @click="router.push('/recibos')" type="button" class="btn-ghost">Voltar</button>
           <button
-            v-if="podeEditarCabecalho"
+            v-if="podeEditarDados"
             @click="salvar"
             :disabled="saving"
             type="button"

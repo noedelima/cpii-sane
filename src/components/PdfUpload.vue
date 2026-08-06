@@ -8,6 +8,8 @@ const props = defineProps<{
   /** Caminho no bucket (ou URL http legada). */
   modelValue: string | null;
   label?: string;
+  /** Somente leitura: mostra o link, sem anexar/remover. */
+  disabled?: boolean;
 }>();
 const emit = defineEmits<{ (e: "update:modelValue", v: string | null): void }>();
 
@@ -94,10 +96,17 @@ function remover() {
         Ver PDF
       </a>
       <span v-else class="text-slate-500 dark:text-slate-400">PDF anexado</span>
-      <button type="button" class="text-red-600 dark:text-red-400 text-xs hover:underline" @click="remover">
+      <button
+        v-if="!disabled"
+        type="button"
+        class="text-red-600 dark:text-red-400 text-xs hover:underline"
+        @click="remover"
+      >
         remover
       </button>
     </div>
+
+    <p v-else-if="disabled" class="text-sm text-slate-500 dark:text-slate-400">Nenhum PDF anexado.</p>
 
     <label v-else class="btn-secondary cursor-pointer inline-flex">
       {{ uploading ? "Enviando…" : "Anexar PDF" }}

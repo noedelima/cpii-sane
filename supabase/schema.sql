@@ -413,6 +413,22 @@ as $ccs$
   select campus_id from public.perfis_campi where perfil_id = auth.uid()
 $ccs$;
 
+-- Recibo ainda editavel pelo campus que o lancou: e de um campus do usuario,
+-- ainda nao virou pagamento (sem NF vinculada, status rascunho/pendente) e nao
+-- esta na quarentena. Depois disso so a SANE altera.
+create or replace function public.recibo_editavel_campus(p_recibo_id bigint)
+returns boolean language sql stable security definer set search_path = public
+as $rec$
+  select exists (
+    select 1 from public.recibos r
+    where r.id = p_recibo_id
+      and r.campus_id in (select public.current_campi())
+      and r.nf_id is null
+      and r.status in ('rascunho','pendente')
+      and r.deleted_at is null
+  )
+$rec$;
+
 -- Matriz de acesso:
 --   admin  -> tudo (usuários, cadastros, deletes)
 --   sane   -> escreve itens, empenhos, empenhos_grupos, NFs, nf_itens, nf_empenhos
@@ -488,10 +504,28 @@ create policy p_recibos_insert on public.recibos for insert to authenticated
     public.current_papel() in ('sane','admin')
     or (public.current_papel() = 'campus' and campus_id in (select public.current_campi()))
   );
+-- Campus corrige o proprio recibo enquanto ele nao virou pagamento (sem NF e
+-- status rascunho/pendente); status e nf_id ficam protegidos pelo gatilho
+-- trg_recibo_nfid_guard. Depois de vinculado/pago, so a SANE altera.
 drop policy if exists p_recibos_update on public.recibos;
 create policy p_recibos_update on public.recibos for update to authenticated
-  using (public.current_papel() in ('sane','admin'))
-  with check (public.current_papel() in ('sane','admin'));
+  using (
+    public.current_papel() in ('sane','admin')
+    or (
+      public.current_papel() = 'campus'
+      and campus_id in (select public.current_campi())
+      and nf_id is null
+      and status in ('rascunho','pendente')
+      and deleted_at is null
+    )
+  )
+  with check (
+    public.current_papel() in ('sane','admin')
+    or (
+      public.current_papel() = 'campus'
+      and campus_id in (select public.current_campi())
+    )
+  );
 
 -- Itens de recibo: campus inclui itens em recibos do próprio campus.
 drop policy if exists p_recibos_itens_insert on public.recibos_itens;
@@ -500,16 +534,26 @@ create policy p_recibos_itens_insert on public.recibos_itens for insert to authe
     public.current_papel() in ('sane','admin')
     or (
       public.current_papel() = 'campus'
-      and exists (
-        select 1 from public.recibos r
-        where r.id = recibo_id and r.campus_id in (select public.current_campi())
-      )
+      and public.recibo_editavel_campus(recibo_id)
     )
   );
+-- Campus corrige quantidades dos itens enquanto o recibo estiver editavel.
 drop policy if exists p_recibos_itens_update on public.recibos_itens;
 create policy p_recibos_itens_update on public.recibos_itens for update to authenticated
-  using (public.current_papel() in ('sane','admin'))
-  with check (public.current_papel() in ('sane','admin'));
+  using (
+    public.current_papel() in ('sane','admin')
+    or (
+      public.current_papel() = 'campus'
+      and public.recibo_editavel_campus(recibo_id)
+    )
+  )
+  with check (
+    public.current_papel() in ('sane','admin')
+    or (
+      public.current_papel() = 'campus'
+      and public.recibo_editavel_campus(recibo_id)
+    )
+  );
 
 -- Perfis: cada usuário vê o próprio; admin vê e administra todos.
 -- (insert só via trigger handle_new_user, que roda como owner.)
@@ -563,7 +607,13 @@ create policy p_nf_itens_delete on public.nf_itens for delete to authenticated
   using (public.current_papel() in ('sane','admin'));
 drop policy if exists p_recibos_itens_delete on public.recibos_itens;
 create policy p_recibos_itens_delete on public.recibos_itens for delete to authenticated
-  using (public.current_papel() in ('sane','admin'));
+  using (
+    public.current_papel() in ('sane','admin')
+    or (
+      public.current_papel() = 'campus'
+      and public.recibo_editavel_campus(recibo_id)
+    )
+  );
 
 -- =========================================================
 -- 9) Views de apoio (security invoker: respeitam o RLS de quem consulta)
@@ -1495,8 +1545,18 @@ begin
   if v_papel is not null and v_papel not in ('sane', 'admin') then
     if tg_op = 'INSERT' then
       new.nf_id := null;
-    elsif new.nf_id is distinct from old.nf_id then
-      new.nf_id := old.nf_id;
+      -- campus nunca abre um recibo ja confirmado/pago/glosado
+      if new.status is null or new.status not in ('rascunho','pendente') then
+        new.status := 'pendente';
+      end if;
+    else
+      if new.nf_id is distinct from old.nf_id then
+        new.nf_id := old.nf_id;
+      end if;
+      -- status e da SANE (confirmar, pagar, glosar): campus nunca altera
+      if new.status is distinct from old.status then
+        new.status := old.status;
+      end if;
     end if;
   end if;
   return new;
