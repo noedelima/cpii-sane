@@ -273,32 +273,24 @@ async function loadRecibosVinculados() {
   await calcularValoresRecibos();
 }
 
-/** Soma os itens de cada recibo vinculado pelo preço de referência do catálogo. */
+/** Soma os itens de cada recibo vinculado pelo preço vigente na data do recibo. */
 async function calcularValoresRecibos() {
   valoresRecibos.value = new Map();
   const ids = recibosVinculados.value.map((r) => r.id);
   if (!ids.length) return;
   const { data: ris } = await supabase
-    .from("recibos_itens")
-    .select("recibo_id, item_id, quantidade")
+    .from("vw_recibo_item_valor")
+    .select("recibo_id, quantidade, preco_unitario")
     .in("recibo_id", ids);
-  type RI = { recibo_id: number; item_id: number; quantidade: number };
+  type RI = { recibo_id: number; quantidade: number; preco_unitario: number | null };
   const linhas = (ris as RI[] | null) ?? [];
   if (!linhas.length) return;
-  const itemIds = Array.from(new Set(linhas.map((l) => l.item_id)));
-  const { data: its } = await supabase
-    .from("itens")
-    .select("id, preco_unitario")
-    .in("id", itemIds);
-  const preco = new Map(
-    (((its as { id: number; preco_unitario: number }[] | null) ?? [])).map((i) => [
-      i.id,
-      Number(i.preco_unitario),
-    ])
-  );
   const m = new Map<number, number>();
   for (const l of linhas) {
-    m.set(l.recibo_id, (m.get(l.recibo_id) ?? 0) + Number(l.quantidade) * (preco.get(l.item_id) ?? 0));
+    m.set(
+      l.recibo_id,
+      (m.get(l.recibo_id) ?? 0) + Number(l.quantidade) * Number(l.preco_unitario ?? 0)
+    );
   }
   valoresRecibos.value = m;
 }
@@ -1227,7 +1219,7 @@ onMounted(async () => {
             </span>
           </p>
           <p class="text-xs text-slate-500 dark:text-slate-400">
-            Soma estimada: quantidades lançadas nos recibos × preço de referência do catálogo.
+            Soma estimada: quantidades lançadas nos recibos × preço vigente na data de cada recibo.
             Recibos sem itens lançados aparecem com “—” e não entram na soma; reajustes
             (apostilamentos) ainda não refletidos no catálogo podem gerar pequenas diferenças.
           </p>

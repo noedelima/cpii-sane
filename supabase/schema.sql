@@ -2401,3 +2401,38 @@ join public.itens i          on i.id = ni.item_id
 where ni.empenho_id is not null
 group by ni.empenho_id, e.numero, ni.item_id, i.codigo_catmat, i.descricao,
          i.unidade, i.grupo_id, nf.id, nf.numero, nf.data_entrega;
+
+
+-- =====================================================================
+-- 30. Valor do item do recibo pelo preco VIGENTE NA DATA do recibo
+-- =====================================================================
+-- Antes o recibo exibia sempre o preco atual do catalogo: ao registrar um
+-- apostilamento, os recibos antigos passavam a mostrar o preco novo. Aqui o
+-- preco e resolvido pela data do recibo, na ordem:
+--   1) ultimo preco de itens_precos com vigencia <= data do recibo;
+--   2) se o recibo e anterior a qualquer reajuste registrado, o preco mais
+--      antigo do historico (o de antes do reajuste);
+--   3) sem historico nenhum, o preco atual do catalogo.
+create or replace view public.vw_recibo_item_valor
+with (security_invoker = on) as
+select
+  ri.id            as recibo_item_id,
+  ri.recibo_id,
+  ri.item_id,
+  ri.quantidade,
+  coalesce(ri.unidade, i.unidade) as unidade,
+  i.descricao,
+  i.codigo_catmat,
+  r.data_recebimento,
+  coalesce(
+    (select p.preco_unitario from public.itens_precos p
+      where p.item_id = ri.item_id and p.vigencia_inicio <= r.data_recebimento
+      order by p.vigencia_inicio desc limit 1),
+    (select p.preco_unitario from public.itens_precos p
+      where p.item_id = ri.item_id
+      order by p.vigencia_inicio asc limit 1),
+    i.preco_unitario
+  )::numeric(14,4) as preco_unitario
+from public.recibos_itens ri
+join public.recibos r on r.id = ri.recibo_id
+join public.itens i   on i.id = ri.item_id;

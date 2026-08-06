@@ -120,11 +120,12 @@ async function loadRecibo() {
   loading.value = true;
   const [r, ri] = await Promise.all([
     supabase.from("recibos").select("*").eq("id", reciboId.value).single(),
+    // preco vigente na DATA do recibo (view resolve o historico de apostilamentos)
     supabase
-      .from("recibos_itens")
-      .select("*, itens (descricao, unidade, preco_unitario)")
+      .from("vw_recibo_item_valor")
+      .select("*")
       .eq("recibo_id", reciboId.value)
-      .order("id"),
+      .order("recibo_item_id"),
   ]);
   if (r.error) {
     error.value = r.error.message;
@@ -145,16 +146,16 @@ async function loadRecibo() {
   atualizadoEm.value = rec.updated_at;
 
   type RIRow = {
-    id: number; item_id: number; quantidade: number; unidade: string | null;
-    itens: { descricao: string; unidade: string; preco_unitario: number } | null;
+    recibo_item_id: number; item_id: number; quantidade: number;
+    unidade: string | null; descricao: string | null; preco_unitario: number | null;
   };
   linhas.value = ((ri.data as unknown as (RIRow[] | null)) ?? []).map((x) => ({
-    id: x.id,
+    id: x.recibo_item_id,
     item_id: x.item_id,
-    descricao: x.itens?.descricao ?? "—",
-    unidade: x.unidade ?? x.itens?.unidade ?? "",
+    descricao: x.descricao ?? "—",
+    unidade: x.unidade ?? "",
     quantidade: Number(x.quantidade),
-    preco_unitario: Number(x.itens?.preco_unitario ?? 0),
+    preco_unitario: Number(x.preco_unitario ?? 0),
   }));
   qtdOriginais.value = new Map(
     linhas.value.filter((l) => l.id != null).map((l) => [l.id as number, l.quantidade])
@@ -518,7 +519,7 @@ onMounted(async () => {
           </div>
         </div>
         <p v-if="itemAtual" class="text-xs text-slate-500 dark:text-slate-400">
-          Preço unitário (ref. catálogo):
+          Preço unitário vigente:
           <strong>{{ fmtMoney(itemAtual.preco_unitario) }}</strong> por {{ itemAtual.unidade }}
         </p>
 
@@ -569,7 +570,8 @@ onMounted(async () => {
             </tfoot>
           </table>
           <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">
-            Valor de referência pelo preço vigente do catálogo; o valor faturado é definido na nota fiscal.
+            Valor de referência pelo preço <strong>vigente na data do recibo</strong> (considera os
+            apostilamentos registrados no grupo); o valor faturado é definido na nota fiscal.
           </p>
         </div>
         <p v-else class="text-sm text-slate-500 dark:text-slate-400">Nenhum item adicionado.</p>
