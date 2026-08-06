@@ -2454,3 +2454,101 @@ join public.grupos g on g.id = i.grupo_id
 where coalesce(i.preco_unitario, 0) > 0
   and not exists (select 1 from public.itens_precos p where p.item_id = i.id)
 on conflict (item_id, vigencia_inicio) do nothing;
+
+
+-- =====================================================================
+-- 31. Atas: controle de saldo por item e empenhos vinculados
+-- =====================================================================
+-- Uma ata pode cobrir mais de um grupo, entao tudo e agrupado por
+-- grupos.numero_ata. "Consumido" segue a mesma regra de vw_item_consumo
+-- (o maior entre o recebido nos recibos e o faturado nas NFs), para os
+-- numeros baterem com o Dashboard e a Estimativa.
+
+create or replace view public.vw_ata_resumo
+with (security_invoker = on) as
+select
+  coalesce(nullif(trim(g.numero_ata), ''), 'Sem ata cadastrada') as ata,
+  count(distinct g.id)                                            as qtd_grupos,
+  string_agg(distinct g.numero_romano, ', ')                      as grupos,
+  string_agg(distinct f.codigo, ', ')                             as fornecedores,
+  string_agg(distinct g.numero_pregao, ', ')                      as pregoes,
+  string_agg(distinct g.numero_tc, ', ')                          as contratos,
+  min(g.vigencia_inicio)                                          as vigencia_inicio,
+  max(g.vigencia_fim)                                             as vigencia_fim,
+  bool_or(g.status = 'vigente')                                   as tem_grupo_vigente
+from public.grupos g
+left join public.fornecedores f on f.id = g.fornecedor_id
+group by 1;
+
+create or replace view public.vw_ata_empenho
+with (security_invoker = on) as
+select distinct
+  coalesce(nullif(trim(g.numero_ata), ''), 'Sem ata cadastrada') as ata,
+  e.id            as empenho_id,
+  e.numero,
+  e.data_emissao,
+  e.status,
+  e.valor_inicial,
+  e.reforco,
+  e.cancelamento,
+  e.anulacao,
+  (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao)::numeric(14,2) as valor_liquido,
+  coalesce(d.debitado, 0)::numeric(14,2)                                     as utilizado,
+  (e.valor_inicial + e.reforco - e.cancelamento - e.anulacao
+     - coalesce(d.debitado, 0))::numeric(14,2)                               as saldo
+from public.empenhos e
+join public.empenhos_grupos eg on eg.empenho_id = e.id
+join public.grupos g           on g.id = eg.grupo_id
+left join (
+  select ne.empenho_id, sum(ne.valor_debitado) as debitado
+  from public.nf_empenhos ne
+  join public.notas_fiscais nf on nf.id = ne.nf_id and nf.deleted_at is null
+  group by ne.empenho_id
+) d on d.empenho_id = e.id
+where e.deleted_at is null;
+
+create or replace view public.vw_ata_item
+with (security_invoker = on) as
+select
+  coalesce(nullif(trim(g.numero_ata), ''), 'Sem ata cadastrada') as ata,
+  i.id            as item_id,
+  i.descricao,
+  i.codigo_catmat,
+  i.unidade,
+  i.status        as item_status,
+  i.grupo_id,
+  g.numero_romano as grupo,
+  i.preco_unitario,
+  i.quantidade_ata::numeric(14,3)        as quantidade_ata,
+  coalesce(emp.qtd, 0)::numeric(14,4)    as qtd_empenhada,
+  greatest(coalesce(rf.qtd, 0), coalesce(nfq.qtd, 0))::numeric(14,4) as qtd_consumida,
+  (i.quantidade_ata
+     - greatest(coalesce(rf.qtd, 0), coalesce(nfq.qtd, 0)))::numeric(14,4) as saldo_ata,
+  (i.quantidade_ata - coalesce(emp.qtd, 0))::numeric(14,4)                as a_empenhar,
+  (coalesce(emp.qtd, 0)
+     - greatest(coalesce(rf.qtd, 0), coalesce(nfq.qtd, 0)))::numeric(14,4) as saldo_empenhado,
+  case when i.quantidade_ata > 0 then
+    round(100 * greatest(coalesce(rf.qtd, 0), coalesce(nfq.qtd, 0)) / i.quantidade_ata, 1)
+  end as pct_consumido
+from public.itens i
+join public.grupos g on g.id = i.grupo_id
+left join (
+  select ei.item_id, sum(ei.quantidade) as qtd
+  from public.empenhos_itens ei
+  join public.empenhos e on e.id = ei.empenho_id
+  where e.deleted_at is null and e.status not in ('cancelado','anulado')
+  group by ei.item_id
+) emp on emp.item_id = i.id
+left join (
+  select ri.item_id, sum(ri.quantidade) as qtd
+  from public.recibos_itens ri
+  join public.recibos r on r.id = ri.recibo_id
+  where r.status <> 'cancelado' and r.deleted_at is null
+  group by ri.item_id
+) rf on rf.item_id = i.id
+left join (
+  select ni.item_id, sum(ni.quantidade) as qtd
+  from public.nf_itens ni
+  join public.notas_fiscais nf on nf.id = ni.nf_id and nf.deleted_at is null
+  group by ni.item_id
+) nfq on nfq.item_id = i.id;
