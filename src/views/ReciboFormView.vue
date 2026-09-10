@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
@@ -14,6 +14,25 @@ interface LinhaItem {
   unidade: string;
   quantidade: number;
   preco_unitario: number;
+}
+
+/** Anexo adicional (alem do PDF principal do recibo). */
+interface AnexoRow {
+  id?: number;
+  link_pdf: string;
+  descricao: string | null;
+}
+
+/** Item nao entregue ou devolvido: base das notificacoes ao fornecedor. */
+interface OcorrenciaRow {
+  id?: number;
+  item_id: number;
+  tipo: "nao_entregue" | "devolvido";
+  quantidade: number;
+  unidade: string | null;
+  observacoes: string | null;
+  situacao: string;
+  _descricao?: string;
 }
 
 const route = useRoute();
@@ -44,6 +63,21 @@ const quantidade = ref<number | null>(null);
 const linhas = ref<LinhaItem[]>([]);
 // quantidades como vieram do banco, para gravar so o que o usuario alterou
 const qtdOriginais = ref<Map<number, number>>(new Map());
+// destaque da ultima linha incluida: confirmacao visual do fluxo com Enter
+const destaqueIdx = ref<number | null>(null);
+const itemSelectRef = ref<HTMLSelectElement | null>(null);
+
+// anexos adicionais (o PDF principal continua em linkPdf)
+const anexos = ref<AnexoRow[]>([]);
+const novoAnexoDescricao = ref("");
+const novoAnexoLink = ref<string | null>(null);
+
+// ocorrencias: itens nao entregues ou devolvidos por ma qualidade
+const ocorrencias = ref<OcorrenciaRow[]>([]);
+const ocItemId = ref<number | null>(null);
+const ocQtd = ref<number | null>(null);
+const ocTipo = ref<"nao_entregue" | "devolvido">("nao_entregue");
+const ocObs = ref("");
 
 // vínculo com NF (SANE)
 const nfId = ref<number | null>(null);
@@ -161,8 +195,44 @@ async function loadRecibo() {
     linhas.value.filter((l) => l.id != null).map((l) => [l.id as number, l.quantidade])
   );
 
-  await Promise.all([loadItensDoGrupo(), loadNFAtual(), loadNFCandidatas()]);
+  await Promise.all([
+    loadItensDoGrupo(),
+    loadNFAtual(),
+    loadNFCandidatas(),
+    loadAnexos(),
+    loadOcorrencias(),
+  ]);
   loading.value = false;
+}
+
+async function loadAnexos() {
+  if (!reciboId.value) return;
+  const { data } = await supabase
+    .from("recibos_anexos")
+    .select("*")
+    .eq("recibo_id", reciboId.value)
+    .order("id");
+  anexos.value = (data as AnexoRow[] | null) ?? [];
+}
+
+async function loadOcorrencias() {
+  if (!reciboId.value) return;
+  const { data } = await supabase
+    .from("recibos_ocorrencias")
+    .select("*, itens (descricao, unidade)")
+    .eq("recibo_id", reciboId.value)
+    .order("id");
+  type Row = OcorrenciaRow & { itens: { descricao: string; unidade: string } | null };
+  ocorrencias.value = ((data as unknown as Row[] | null) ?? []).map((o) => ({
+    id: o.id,
+    item_id: o.item_id,
+    tipo: o.tipo,
+    quantidade: Number(o.quantidade),
+    unidade: o.unidade,
+    observacoes: o.observacoes,
+    situacao: o.situacao,
+    _descricao: o.itens?.descricao ?? "—",
+  }));
 }
 
 async function loadNFAtual() {
@@ -222,8 +292,19 @@ function adicionarItemLocal() {
     quantidade: quantidade.value,
     preco_unitario: Number(itemAtual.value.preco_unitario),
   });
+  posAdicionar();
+}
+
+/** Limpa os campos, destaca a linha incluida e devolve o foco ao item. */
+function posAdicionar() {
   itemId.value = null;
   quantidade.value = null;
+  const idx = linhas.value.length - 1;
+  destaqueIdx.value = idx;
+  setTimeout(() => {
+    if (destaqueIdx.value === idx) destaqueIdx.value = null;
+  }, 1600);
+  void nextTick(() => itemSelectRef.value?.focus());
 }
 
 async function adicionarItem() {
@@ -256,8 +337,105 @@ async function adicionarItem() {
     quantidade: quantidade.value,
     preco_unitario: Number(itemAtual.value.preco_unitario),
   });
-  itemId.value = null;
-  quantidade.value = null;
+  posAdicionar();
+}
+
+// --- anexos adicionais ---
+// O upload ja devolve o caminho no storage; ao chegar, vira uma linha de anexo.
+watch(novoAnexoLink, async (v) => {
+  if (!v) return;
+  const registro: AnexoRow = {
+    link_pdf: v,
+    descricao: novoAnexoDescricao.value.trim() || null,
+  };
+  if (editMode.value && reciboId.value) {
+    const { data, error: err } = await supabase
+      .from("recibos_anexos")
+      .insert({
+        recibo_id: reciboId.value,
+        link_pdf: registro.link_pdf,
+        descricao: registro.descricao,
+        created_by: auth.user?.id ?? null,
+        created_by_nome: auth.perfil?.nome ?? null,
+      })
+      .select("id")
+      .single();
+    if (err) {
+      error.value = err.message;
+      novoAnexoLink.value = null;
+      return;
+    }
+    registro.id = (data as { id: number }).id;
+  }
+  anexos.value.push(registro);
+  novoAnexoDescricao.value = "";
+  novoAnexoLink.value = null;
+});
+
+async function removerAnexo(idx: number) {
+  const a = anexos.value[idx];
+  if (a.id) {
+    const { error: err } = await supabase.from("recibos_anexos").delete().eq("id", a.id);
+    if (err) {
+      error.value = err.message;
+      return;
+    }
+  }
+  anexos.value.splice(idx, 1);
+}
+
+// --- ocorrencias: itens nao entregues ou devolvidos ---
+const itemOcorrencia = computed(() => itensDoGrupo.value.find((i) => i.id === ocItemId.value));
+
+async function adicionarOcorrencia() {
+  if (!itemOcorrencia.value || !ocQtd.value || ocQtd.value <= 0) return;
+  error.value = null;
+  const nova: OcorrenciaRow = {
+    item_id: itemOcorrencia.value.id,
+    tipo: ocTipo.value,
+    quantidade: ocQtd.value,
+    unidade: itemOcorrencia.value.unidade,
+    observacoes: ocObs.value.trim() || null,
+    situacao: "registrada",
+    _descricao: itemOcorrencia.value.descricao,
+  };
+  if (editMode.value && reciboId.value) {
+    const { data, error: err } = await supabase
+      .from("recibos_ocorrencias")
+      .insert({
+        recibo_id: reciboId.value,
+        item_id: nova.item_id,
+        tipo: nova.tipo,
+        quantidade: nova.quantidade,
+        unidade: nova.unidade,
+        observacoes: nova.observacoes,
+        created_by: auth.user?.id ?? null,
+        created_by_nome: auth.perfil?.nome ?? null,
+      })
+      .select("id")
+      .single();
+    if (err) {
+      error.value = err.message;
+      return;
+    }
+    nova.id = (data as { id: number }).id;
+  }
+  ocorrencias.value.push(nova);
+  ocItemId.value = null;
+  ocQtd.value = null;
+  ocObs.value = "";
+}
+
+async function removerOcorrencia(idx: number) {
+  const o = ocorrencias.value[idx];
+  if (o.id) {
+    const { error: err } = await supabase.from("recibos_ocorrencias").delete().eq("id", o.id);
+    if (err) {
+      error.value = err.message;
+      return;
+    }
+  }
+  ocorrencias.value.splice(idx, 1);
 }
 
 async function removerLinha(idx: number) {
@@ -354,6 +532,35 @@ async function salvar() {
       }));
       const { error: e2 } = await supabase.from("recibos_itens").insert(inserts);
       if (e2) throw e2;
+
+      // anexos e ocorrencias ficam em memoria ate existir o id do recibo
+      if (anexos.value.length) {
+        const { error: e3 } = await supabase.from("recibos_anexos").insert(
+          anexos.value.map((a) => ({
+            recibo_id: novoId,
+            link_pdf: a.link_pdf,
+            descricao: a.descricao,
+            created_by: auth.user?.id ?? null,
+            created_by_nome: auth.perfil?.nome ?? null,
+          }))
+        );
+        if (e3) throw e3;
+      }
+      if (ocorrencias.value.length) {
+        const { error: e4 } = await supabase.from("recibos_ocorrencias").insert(
+          ocorrencias.value.map((o) => ({
+            recibo_id: novoId,
+            item_id: o.item_id,
+            tipo: o.tipo,
+            quantidade: o.quantidade,
+            unidade: o.unidade,
+            observacoes: o.observacoes,
+            created_by: auth.user?.id ?? null,
+            created_by_nome: auth.perfil?.nome ?? null,
+          }))
+        );
+        if (e4) throw e4;
+      }
       router.push("/recibos");
     }
   } catch (e) {
@@ -497,7 +704,7 @@ onMounted(async () => {
         <div v-if="podeAdicionarItens" class="grid sm:grid-cols-12 gap-3 items-end">
           <div class="sm:col-span-6">
             <label class="label">Item</label>
-            <select v-model="itemId" class="input" :disabled="!grupoId">
+            <select ref="itemSelectRef" v-model="itemId" class="input" :disabled="!grupoId">
               <option :value="null" disabled>
                 {{ grupoId ? "Selecione…" : "Selecione o Grupo primeiro" }}
               </option>
@@ -512,7 +719,14 @@ onMounted(async () => {
           </div>
           <div class="sm:col-span-2">
             <label class="label">Quantidade</label>
-            <input v-model.number="quantidade" type="number" step="0.001" min="0" class="input" />
+            <input
+              v-model.number="quantidade"
+              type="number"
+              step="0.001"
+              min="0"
+              class="input"
+              @keyup.enter="adicionarItem"
+            />
           </div>
           <div class="sm:col-span-2">
             <button @click="adicionarItem" type="button" class="btn-secondary w-full">Adicionar</button>
@@ -521,6 +735,11 @@ onMounted(async () => {
         <p v-if="itemAtual" class="text-xs text-slate-500 dark:text-slate-400">
           Preço unitário vigente:
           <strong>{{ fmtMoney(itemAtual.preco_unitario) }}</strong> por {{ itemAtual.unidade }}
+        </p>
+        <p v-if="podeAdicionarItens" class="text-xs text-slate-500 dark:text-slate-400">
+          Escolha o item, digite a quantidade e tecle
+          <kbd class="rounded border border-slate-300 dark:border-slate-600 px-1">Enter</kbd>
+          para incluir — a linha entra destacada e o foco volta para o item.
         </p>
 
         <div v-if="linhas.length" class="border-t border-slate-200 dark:border-slate-700 pt-4">
@@ -536,7 +755,12 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-              <tr v-for="(l, idx) in linhas" :key="l.id ?? `n${idx}`">
+              <tr
+                v-for="(l, idx) in linhas"
+                :key="l.id ?? `n${idx}`"
+                class="transition-colors"
+                :class="destaqueIdx === idx ? 'bg-green-50 dark:bg-green-950/30' : ''"
+              >
                 <td class="py-2">{{ l.descricao }}</td>
                 <td class="py-2 text-right tabular-nums w-28">
                   <input
@@ -575,6 +799,157 @@ onMounted(async () => {
           </p>
         </div>
         <p v-else class="text-sm text-slate-500 dark:text-slate-400">Nenhum item adicionado.</p>
+      </div>
+
+      <!-- Itens não entregues / devolvidos -->
+      <div class="card p-5 space-y-4">
+        <h2 class="font-medium text-slate-700 dark:text-slate-200">
+          Itens não entregues ou devolvidos
+        </h2>
+        <p class="text-xs text-slate-500 dark:text-slate-400">
+          Registre o que <strong>não</strong> foi entregue ou foi devolvido por má qualidade. Não
+          entra nas quantidades recebidas — serve para a SANE notificar o fornecedor e fica
+          consolidado na aba <strong>Notificações</strong>.
+        </p>
+
+        <div v-if="podeEditarDados" class="grid sm:grid-cols-12 gap-3 items-end">
+          <div class="sm:col-span-4">
+            <label class="label">Item</label>
+            <select v-model="ocItemId" class="input" :disabled="!grupoId">
+              <option :value="null" disabled>
+                {{ grupoId ? "Selecione…" : "Selecione o Grupo primeiro" }}
+              </option>
+              <option v-for="i in itensDoGrupo" :key="i.id" :value="i.id">
+                {{ i.codigo_catmat ? i.codigo_catmat + " — " : "" }}{{ i.descricao }}
+              </option>
+            </select>
+          </div>
+          <div class="sm:col-span-3">
+            <label class="label">Ocorrência</label>
+            <select v-model="ocTipo" class="input">
+              <option value="nao_entregue">Não entregue</option>
+              <option value="devolvido">Devolvido por má qualidade</option>
+            </select>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="label">Qtd ({{ itemOcorrencia?.unidade ?? "un" }})</label>
+            <input
+              v-model.number="ocQtd"
+              type="number"
+              step="0.001"
+              min="0"
+              class="input"
+              @keyup.enter="adicionarOcorrencia"
+            />
+          </div>
+          <div class="sm:col-span-3">
+            <button type="button" class="btn-secondary w-full" @click="adicionarOcorrencia">
+              Adicionar ocorrência
+            </button>
+          </div>
+          <div class="sm:col-span-12">
+            <label class="label">Observação (opcional)</label>
+            <input
+              v-model="ocObs"
+              type="text"
+              class="input"
+              placeholder="ex.: produto fora do padrão, embalagem violada"
+              @keyup.enter="adicionarOcorrencia"
+            />
+          </div>
+        </div>
+
+        <table v-if="ocorrencias.length" class="w-full text-sm">
+          <thead class="text-xs text-slate-500 dark:text-slate-400 uppercase">
+            <tr>
+              <th class="text-left py-1">Item</th>
+              <th class="text-right py-1">Qtd</th>
+              <th class="text-left py-1 pl-3">Ocorrência</th>
+              <th class="text-left py-1">Observação</th>
+              <th class="text-left py-1">Situação</th>
+              <th class="py-1"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+            <tr v-for="(o, idx) in ocorrencias" :key="o.id ?? `o${idx}`">
+              <td class="py-2">{{ o._descricao }}</td>
+              <td class="py-2 text-right tabular-nums">{{ o.quantidade }} {{ o.unidade }}</td>
+              <td class="py-2 pl-3">
+                <span
+                  class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium"
+                  :class="o.tipo === 'nao_entregue'
+                    ? 'bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300'
+                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'"
+                >{{ o.tipo === "nao_entregue" ? "Não entregue" : "Devolvido" }}</span>
+              </td>
+              <td class="py-2 text-slate-600 dark:text-slate-300">{{ o.observacoes ?? "—" }}</td>
+              <td class="py-2 capitalize text-slate-500 dark:text-slate-400">{{ o.situacao }}</td>
+              <td class="py-2 text-right">
+                <button
+                  v-if="podeEditarDados"
+                  type="button"
+                  class="text-red-600 dark:text-red-400 text-xs hover:underline"
+                  @click="removerOcorrencia(idx)"
+                >remover</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="text-sm text-slate-500 dark:text-slate-400">
+          Nenhuma ocorrência registrada.
+        </p>
+      </div>
+
+      <!-- Anexos adicionais -->
+      <div v-if="editMode" class="card p-5 space-y-4">
+        <h2 class="font-medium text-slate-700 dark:text-slate-200">Outros anexos</h2>
+        <p class="text-xs text-slate-500 dark:text-slate-400">
+          Além do PDF principal, anexe quantos arquivos precisar (canhoto, segunda via, foto da
+          ocorrência). Todos entram no “Baixar PDFs unificados” da nota fiscal.
+        </p>
+
+        <div
+          v-if="anexos.length"
+          class="divide-y divide-slate-200 dark:divide-slate-700 border border-slate-200 dark:border-slate-700 rounded-md"
+        >
+          <div
+            v-for="(a, idx) in anexos"
+            :key="a.id ?? `a${idx}`"
+            class="flex items-end justify-between gap-3 px-3 py-2"
+          >
+            <PdfUpload
+              :model-value="a.link_pdf"
+              bucket="pdfs-recibos"
+              :label="a.descricao || 'Anexo'"
+              disabled
+            />
+            <button
+              v-if="podeEditarDados"
+              type="button"
+              class="text-red-600 dark:text-red-400 text-xs hover:underline shrink-0 pb-1"
+              @click="removerAnexo(idx)"
+            >remover</button>
+          </div>
+        </div>
+        <p v-else class="text-sm text-slate-500 dark:text-slate-400">Nenhum anexo adicional.</p>
+
+        <div
+          v-if="podeEditarDados"
+          class="grid sm:grid-cols-12 gap-3 items-end border-t border-slate-200 dark:border-slate-700 pt-4"
+        >
+          <div class="sm:col-span-7">
+            <label class="label">Descrição do anexo (opcional)</label>
+            <input
+              v-model="novoAnexoDescricao"
+              type="text"
+              class="input"
+              placeholder="ex.: canhoto assinado"
+            />
+          </div>
+          <div class="sm:col-span-5">
+            <PdfUpload v-model="novoAnexoLink" bucket="pdfs-recibos" label="Anexar mais um PDF" />
+          </div>
+        </div>
       </div>
 
       <div v-if="aviso" class="rounded-md bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-900 p-3 text-sm text-green-800 dark:text-green-200">

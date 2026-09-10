@@ -78,6 +78,7 @@ const navItems = computed(() => {
   if (auth.isSane) {
     items.push({ to: "/atas", label: "Atas" });
     items.push({ to: "/consumo", label: "Consumo" });
+    items.push({ to: "/notificacoes", label: "Notificações" });
     items.push({ to: "/solicitar-nf", label: "Solicitar NF" });
     items.push({ to: "/ateste", label: "Ateste" });
   }

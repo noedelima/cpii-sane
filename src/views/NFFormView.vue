@@ -92,6 +92,8 @@ const novaQtd = ref<number | null>(null);
 
 // recibos vinculados (nf_recibos) e busca de candidatos do(s) grupo(s)
 const recibosVinculados = ref<ReciboRow[]>([]);
+// anexos adicionais de cada recibo vinculado (entram no PDF unificado)
+const anexosPorRecibo = ref<Map<number, string[]>>(new Map());
 const recibosCandidatos = ref<ReciboRow[]>([]);
 const buscaRecibo = ref("");
 // filtro por periodo (data do pedido/recebimento) na vinculacao de recibos
@@ -132,6 +134,15 @@ const itemSelecionadoNF = computed(
   () => itensDosGrupos.value.find((i) => i.id === novoItemId.value) ?? null
 );
 const recibosVinculadosIds = computed(() => new Set(recibosVinculados.value.map((r) => r.id)));
+/** Total de PDFs disponiveis nos recibos vinculados (principal + anexos). */
+const totalPdfsRecibos = computed(() => {
+  let n = 0;
+  for (const r of recibosVinculados.value) {
+    if (r.link_pdf) n++;
+    n += (anexosPorRecibo.value.get(r.id) ?? []).length;
+  }
+  return n;
+});
 // valor estimado por recibo vinculado (quantidades × preço de referência do catálogo,
 // mesma regra do "Total estimado" da Solicitação de NF)
 const valoresRecibos = ref<Map<number, number>>(new Map());
@@ -270,7 +281,25 @@ async function loadRecibosVinculados() {
     .map((x) => x.recibos)
     .filter(Boolean)
     .sort((a, b) => (a!.data_recebimento < b!.data_recebimento ? -1 : 1)) as ReciboRow[];
-  await calcularValoresRecibos();
+  await Promise.all([calcularValoresRecibos(), carregarAnexosDosRecibos()]);
+}
+
+/** Anexos adicionais dos recibos vinculados, para o PDF unificado. */
+async function carregarAnexosDosRecibos() {
+  anexosPorRecibo.value = new Map();
+  const ids = recibosVinculados.value.map((r) => r.id);
+  if (!ids.length) return;
+  const { data } = await supabase
+    .from("recibos_anexos")
+    .select("recibo_id, link_pdf")
+    .in("recibo_id", ids);
+  const m = new Map<number, string[]>();
+  for (const a of ((data as { recibo_id: number; link_pdf: string }[] | null) ?? [])) {
+    const arr = m.get(a.recibo_id) ?? [];
+    arr.push(a.link_pdf);
+    m.set(a.recibo_id, arr);
+  }
+  anexosPorRecibo.value = m;
 }
 
 /** Soma os itens de cada recibo vinculado pelo preço vigente na data do recibo. */
@@ -367,8 +396,14 @@ watch(buscaRecibo, () => {
 watch([reciboDe, reciboAte], () => buscarRecibosCandidatos());
 
 async function baixarRecibosUnificados() {
-  const comPdf = recibosVinculados.value.filter((r) => r.link_pdf);
-  if (!comPdf.length) {
+  const alvos: { rotulo: string; caminho: string }[] = [];
+  for (const r of recibosVinculados.value) {
+    if (r.link_pdf) alvos.push({ rotulo: String(r.numero), caminho: r.link_pdf });
+    for (const a of anexosPorRecibo.value.get(r.id) ?? []) {
+      alvos.push({ rotulo: String(r.numero) + " (anexo)", caminho: a });
+    }
+  }
+  if (!alvos.length) {
     error.value = "Nenhum recibo vinculado possui PDF anexado.";
     return;
   }
@@ -378,9 +413,9 @@ async function baixarRecibosUnificados() {
   try {
     const { PDFDocument } = await import("pdf-lib");
     const final = await PDFDocument.create();
-    for (const r of comPdf) {
+    for (const alvo of alvos) {
       try {
-        let url = r.link_pdf as string;
+        let url = alvo.caminho;
         if (!/^https?:\/\//i.test(url)) {
           const { data } = await supabase.storage
             .from("pdfs-recibos")
@@ -395,7 +430,7 @@ async function baixarRecibosUnificados() {
         const pages = await final.copyPages(docPdf, docPdf.getPageIndices());
         for (const pg of pages) final.addPage(pg);
       } catch {
-        pulados.push(String(r.numero));
+        pulados.push(alvo.rotulo);
       }
     }
     if (final.getPageCount() === 0) {
@@ -1077,7 +1112,14 @@ onMounted(async () => {
           </div>
           <div class="sm:col-span-2">
             <label class="label">Qtd ({{ itemSelecionadoNF?.unidade ?? "un" }})</label>
-            <input v-model.number="novaQtd" type="number" step="0.0001" min="0" class="input" />
+            <input
+              v-model.number="novaQtd"
+              type="number"
+              step="0.0001"
+              min="0"
+              class="input"
+              @keyup.enter="addNFItem"
+            />
           </div>
           <div class="sm:col-span-2">
             <label class="label">Valor unit.</label>
@@ -1159,10 +1201,10 @@ onMounted(async () => {
           <button
             type="button"
             class="btn-secondary"
-            :disabled="mesclando || !recibosVinculados.some((r) => r.link_pdf)"
+            :disabled="mesclando || totalPdfsRecibos === 0"
             @click="baixarRecibosUnificados"
           >
-            {{ mesclando ? "Unificando…" : `Baixar PDFs unificados (${recibosVinculados.filter((r) => r.link_pdf).length})` }}
+            {{ mesclando ? "Unificando…" : `Baixar PDFs unificados (${totalPdfsRecibos})` }}
           </button>
         </div>
 

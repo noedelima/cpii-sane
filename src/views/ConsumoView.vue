@@ -48,6 +48,8 @@ interface Linha {
   ritmo: number;
   cobertura: number | null;
   status: Status;
+  /** Quantos empenhos foram consolidados (apenas no agrupamento por item). */
+  _empenhos?: number;
 }
 
 const grupos = ref<Grupo[]>([]);
@@ -60,6 +62,9 @@ const grupoFiltro = ref<number | null>(null);
 const empenhoFiltro = ref<number | null>(null);
 const granularidade = ref<Granularidade>("semana");
 const janela = ref(12);
+// "empenho" = uma linha por empenho x item; "item" consolida o item entre empenhos
+const agruparPor = ref<"empenho" | "item">("empenho");
+const buscaItem = ref("");
 
 const num = (v: unknown) => (v == null ? 0 : Number(v));
 const fmtQtd = (n: number) =>
@@ -191,7 +196,7 @@ const empenhosDisponiveis = computed(() => {
   );
 });
 
-const linhas = computed<Linha[]>(() => {
+const linhasBase = computed<Linha[]>(() => {
   const mapaSaldo = new Map<string, SaldoRow>();
   for (const s of saldos.value) mapaSaldo.set(s.empenho_id + "|" + s.item_id, s);
 
@@ -253,9 +258,83 @@ const linhas = computed<Linha[]>(() => {
     });
   }
 
-  const ordem: Record<Status, number> = { esgotado: 0, urgente: 1, atencao: 2, ok: 3, sem: 4 };
-  return out.sort((a, b) => {
-    if (ordem[a.status] !== ordem[b.status]) return ordem[a.status] - ordem[b.status];
+  return out;
+});
+
+/** Ritmo, cobertura e situacao a partir da serie do periodo e do saldo. */
+function metricas(serie: number[], saldo: number | null) {
+  const primeiro = serie.findIndex((v) => v > 0);
+  const ativos = primeiro === -1 ? 0 : serie.length - primeiro;
+  const total = serie.reduce((a, b) => a + b, 0);
+  const ritmo = ativos > 0 ? total / ativos : 0;
+  let cobertura: number | null = null;
+  if (saldo != null) {
+    if (saldo <= 0) cobertura = 0;
+    else if (ritmo > 0) cobertura = saldo / ritmo;
+  }
+  let status: Status = "ok";
+  if (saldo != null && saldo <= 0) status = "esgotado";
+  else if (cobertura != null && cobertura <= limites.value.urgente) status = "urgente";
+  else if (cobertura != null && cobertura <= limites.value.atencao) status = "atencao";
+  else if (ritmo === 0) status = "sem";
+  return { ritmo, cobertura, status };
+}
+
+const ordemStatus: Record<Status, number> = {
+  esgotado: 0,
+  urgente: 1,
+  atencao: 2,
+  ok: 3,
+  sem: 4,
+};
+
+const linhas = computed<Linha[]>(() => {
+  const t = buscaItem.value.trim().toLowerCase();
+  let base = linhasBase.value.filter(
+    (l) => !t || l.descricao.toLowerCase().includes(t) || (l.codigo_catmat ?? "").includes(t)
+  );
+
+  // Consolida o mesmo item entre os varios empenhos que o cobrem.
+  if (agruparPor.value === "item") {
+    const m = new Map<number, Linha>();
+    for (const l of base) {
+      let g = m.get(l.item_id);
+      if (!g) {
+        g = {
+          empenho_id: 0,
+          empenho: "",
+          item_id: l.item_id,
+          codigo_catmat: l.codigo_catmat,
+          descricao: l.descricao,
+          unidade: l.unidade,
+          qtdEmpenhada: null,
+          qtdConsumida: 0,
+          saldo: null,
+          serie: periodos.value.map(() => 0),
+          ritmo: 0,
+          cobertura: null,
+          status: "ok",
+          _empenhos: 0,
+        };
+        m.set(l.item_id, g);
+      }
+      if (l.qtdEmpenhada != null) g.qtdEmpenhada = (g.qtdEmpenhada ?? 0) + l.qtdEmpenhada;
+      if (l.saldo != null) g.saldo = (g.saldo ?? 0) + l.saldo;
+      g.qtdConsumida += l.qtdConsumida;
+      for (let i = 0; i < g.serie.length; i++) g.serie[i] += l.serie[i] ?? 0;
+      g._empenhos = (g._empenhos ?? 0) + 1;
+    }
+    base = [...m.values()].map((g) => ({
+      ...g,
+      ...metricas(g.serie, g.saldo),
+      empenho: (g._empenhos ?? 0) + (g._empenhos === 1 ? " empenho" : " empenhos"),
+    }));
+  }
+
+  return base.sort((a, b) => {
+    if (ordemStatus[a.status] !== ordemStatus[b.status]) {
+      return ordemStatus[a.status] - ordemStatus[b.status];
+    }
     const ca = a.cobertura ?? Infinity;
     const cb = b.cobertura ?? Infinity;
     if (ca !== cb) return ca - cb;
@@ -352,6 +431,27 @@ onMounted(async () => {
             <option :value="12">12 meses</option>
           </template>
         </select>
+      </div>
+      <div>
+        <label class="label">Agrupar por</label>
+        <div class="inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden">
+          <button
+            type="button"
+            class="px-3 py-2 text-sm"
+            :class="agruparPor === 'empenho' ? 'bg-cpii-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'"
+            @click="agruparPor = 'empenho'"
+          >Empenho × item</button>
+          <button
+            type="button"
+            class="px-3 py-2 text-sm border-l border-slate-300 dark:border-slate-600"
+            :class="agruparPor === 'item' ? 'bg-cpii-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'"
+            @click="agruparPor = 'item'"
+          >Item</button>
+        </div>
+      </div>
+      <div class="grow max-w-xs">
+        <label class="label">Item</label>
+        <input v-model="buscaItem" type="search" class="input" placeholder="Descrição ou CatMat…" />
       </div>
     </div>
 

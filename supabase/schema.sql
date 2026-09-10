@@ -2552,3 +2552,149 @@ left join (
   join public.notas_fiscais nf on nf.id = ni.nf_id and nf.deleted_at is null
   group by ni.item_id
 ) nfq on nfq.item_id = i.id;
+
+
+-- =====================================================================
+-- 32. Anexos do recibo (varios PDFs) e ocorrencias (faltas/devolucoes)
+-- =====================================================================
+-- O recibo ja tem link_pdf (anexo principal, mantido por compatibilidade).
+-- Esta tabela guarda os anexos ADICIONAIS, sem limite de dois.
+create table if not exists public.recibos_anexos (
+  id              bigserial primary key,
+  recibo_id       bigint not null references public.recibos(id) on delete cascade,
+  link_pdf        text not null,
+  descricao       text,
+  created_at      timestamptz not null default now(),
+  created_by      uuid references auth.users(id) on delete set null,
+  created_by_nome text
+);
+create index if not exists idx_recibos_anexos_recibo on public.recibos_anexos(recibo_id);
+alter table public.recibos_anexos enable row level security;
+
+-- Ocorrencias do recebimento: item NAO entregue ou DEVOLVIDO por ma qualidade.
+-- Nao sao entregas, entao NAO entram em recibos_itens nem no consumo/saldo:
+-- servem para notificar o fornecedor e instruir penalidade/rescisao.
+-- A nutri registra a ocorrencia; o acompanhamento da notificacao e da SANE.
+create table if not exists public.recibos_ocorrencias (
+  id               bigserial primary key,
+  recibo_id        bigint not null references public.recibos(id) on delete cascade,
+  item_id          bigint not null references public.itens(id) on delete restrict,
+  tipo             text not null check (tipo in ('nao_entregue','devolvido')),
+  quantidade       numeric(14,3) not null,
+  unidade          text,
+  observacoes      text,
+  situacao         text not null default 'registrada'
+                     check (situacao in ('registrada','notificada','respondida','arquivada')),
+  data_notificacao date,
+  referencia       text,
+  created_at       timestamptz not null default now(),
+  created_by       uuid references auth.users(id) on delete set null,
+  created_by_nome  text,
+  updated_at       timestamptz not null default now()
+);
+create index if not exists idx_recibos_ocorrencias_recibo on public.recibos_ocorrencias(recibo_id);
+create index if not exists idx_recibos_ocorrencias_item on public.recibos_ocorrencias(item_id);
+alter table public.recibos_ocorrencias enable row level security;
+
+-- Campus registra a ocorrencia, mas o acompanhamento da notificacao ao
+-- fornecedor (situacao, data e referencia do processo) e exclusivo da SANE.
+create or replace function public.trg_ocorrencia_guard()
+returns trigger language plpgsql as $og$
+declare v_papel text := public.current_papel();
+begin
+  if v_papel is not null and v_papel not in ('sane', 'admin') then
+    if tg_op = 'INSERT' then
+      new.situacao := 'registrada';
+      new.data_notificacao := null;
+      new.referencia := null;
+    else
+      new.situacao := old.situacao;
+      new.data_notificacao := old.data_notificacao;
+      new.referencia := old.referencia;
+    end if;
+  end if;
+  new.updated_at := now();
+  return new;
+end;
+$og$;
+
+drop trigger if exists trg_recibos_ocorrencias_guard on public.recibos_ocorrencias;
+create trigger trg_recibos_ocorrencias_guard
+  before insert or update on public.recibos_ocorrencias
+  for each row execute function public.trg_ocorrencia_guard();
+
+-- RLS: leitura autenticada; escrita da SANE sempre, e do campus enquanto o
+-- recibo estiver editavel (mesma regra dos itens do recibo).
+do $pol2$
+declare t text;
+begin
+  for t in select unnest(array['recibos_anexos','recibos_ocorrencias']) loop
+    execute format('drop policy if exists p_%s_select on public.%s', t, t);
+    execute format('drop policy if exists p_%s_insert on public.%s', t, t);
+    execute format('drop policy if exists p_%s_update on public.%s', t, t);
+    execute format('drop policy if exists p_%s_delete on public.%s', t, t);
+    execute format(
+      'create policy p_%s_select on public.%s for select to authenticated using (true)', t, t);
+    execute format(
+      'create policy p_%s_insert on public.%s for insert to authenticated
+       with check (public.current_papel() in (''sane'',''admin'')
+         or (public.current_papel() = ''campus''
+             and public.recibo_editavel_campus(recibo_id)))', t, t);
+    execute format(
+      'create policy p_%s_update on public.%s for update to authenticated
+       using (public.current_papel() in (''sane'',''admin'')
+         or (public.current_papel() = ''campus''
+             and public.recibo_editavel_campus(recibo_id)))
+       with check (public.current_papel() in (''sane'',''admin'')
+         or (public.current_papel() = ''campus''
+             and public.recibo_editavel_campus(recibo_id)))', t, t);
+    execute format(
+      'create policy p_%s_delete on public.%s for delete to authenticated
+       using (public.current_papel() in (''sane'',''admin'')
+         or (public.current_papel() = ''campus''
+             and public.recibo_editavel_campus(recibo_id)))', t, t);
+  end loop;
+end $pol2$;
+
+-- Consolidacao para a aba Notificacoes: ocorrencia + recibo + campus + grupo +
+-- fornecedor + item, com o valor estimado pelo preco vigente na data do recibo.
+create or replace view public.vw_ocorrencias
+with (security_invoker = on) as
+select
+  o.id,
+  o.recibo_id,
+  r.numero            as recibo_numero,
+  r.data_recebimento,
+  r.campus_id,
+  ca.nome             as campus,
+  r.grupo_id,
+  g.numero_romano     as grupo,
+  g.fornecedor_id,
+  f.codigo            as fornecedor,
+  f.razao_social      as fornecedor_nome,
+  o.item_id,
+  i.descricao         as item,
+  i.codigo_catmat,
+  coalesce(o.unidade, i.unidade) as unidade,
+  o.tipo,
+  o.quantidade,
+  (o.quantidade * coalesce(
+    (select p.preco_unitario from public.itens_precos p
+      where p.item_id = o.item_id and p.vigencia_inicio <= r.data_recebimento
+      order by p.vigencia_inicio desc limit 1),
+    (select p.preco_unitario from public.itens_precos p
+      where p.item_id = o.item_id order by p.vigencia_inicio asc limit 1),
+    i.preco_unitario
+  ))::numeric(14,2)   as valor_estimado,
+  o.observacoes,
+  o.situacao,
+  o.data_notificacao,
+  o.referencia,
+  o.created_at,
+  o.created_by_nome
+from public.recibos_ocorrencias o
+join public.recibos r      on r.id = o.recibo_id and r.deleted_at is null
+join public.campi ca       on ca.id = r.campus_id
+join public.grupos g       on g.id = r.grupo_id
+left join public.fornecedores f on f.id = g.fornecedor_id
+join public.itens i        on i.id = o.item_id;
