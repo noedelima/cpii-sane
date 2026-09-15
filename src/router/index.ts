@@ -99,6 +99,12 @@ const routes: RouteRecordRaw[] = [
     meta: { roles: ["sane"] },
   },
   {
+    path: "/fornecedores",
+    name: "fornecedores",
+    component: () => import("@/views/FornecedoresView.vue"),
+    meta: { roles: ["sane"] },
+  },
+  {
     path: "/grupos",
     name: "grupos",
     component: () => import("@/views/GruposView.vue"),

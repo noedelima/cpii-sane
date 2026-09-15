@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import FornecedorForm from "@/components/FornecedorForm.vue";
 import { fmtMoney } from "@/lib/format";
 import type { Fornecedor, Grupo, Item } from "@/types/database";
 
@@ -17,6 +18,13 @@ const grupoId = computed(() => (route.params.id ? Number(route.params.id) : null
 const editMode = computed(() => grupoId.value != null);
 
 const fornecedores = ref<Fornecedor[]>([]);
+const criandoFornecedor = ref(false);
+function fornecedorCadastrado(f: Fornecedor) {
+  fornecedores.value.push(f);
+  fornecedores.value.sort((a, b) => a.codigo.localeCompare(b.codigo, "pt-BR"));
+  fornecedorId.value = f.id;
+  criandoFornecedor.value = false;
+}
 
 const nome = ref("");
 const numeroArabico = ref<number | null>(null);
@@ -346,6 +354,7 @@ onMounted(async () => {
 
 <template>
   <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <FornecedorForm v-if="criandoFornecedor" @saved="fornecedorCadastrado" @cancel="criandoFornecedor = false" />
     <h1 class="text-2xl font-semibold">
       {{ editMode ? `Grupo ${numeroRomano || "…"} — ${categoria || ""}` : "Novo grupo" }}
     </h1>
@@ -376,6 +385,7 @@ onMounted(async () => {
           </div>
           <div>
             <label class="label">Fornecedor</label>
+            <button type="button" class="btn-ghost mb-2" :disabled="criandoFornecedor" @click="criandoFornecedor = true">+ Novo fornecedor</button>
             <select v-model="fornecedorId" class="input">
               <option :value="null">—</option>
               <option v-for="f in fornecedores" :key="f.id" :value="f.id">
@@ -429,7 +439,7 @@ onMounted(async () => {
         </div>
         <div class="flex justify-end gap-2">
           <button @click="router.push('/grupos')" type="button" class="btn-ghost">Voltar</button>
-          <button @click="salvarGrupo" :disabled="saving" type="button" class="btn-primary">
+          <button @click="salvarGrupo" :disabled="saving || criandoFornecedor" type="button" class="btn-primary">
             {{ saving ? "Salvando…" : editMode ? "Salvar grupo" : "Criar grupo e cadastrar itens" }}
           </button>
         </div>
