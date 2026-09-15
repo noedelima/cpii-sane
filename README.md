@@ -44,7 +44,7 @@ A aplicação inicia em http://localhost:5173.
 | Papel | Permissões |
 | --- | --- |
 | `admin` | tudo: usuários, cadastros básicos, exclusões |
-| `sane` | itens, empenhos, notas fiscais e rateios |
+| `sane` | fornecedores (cadastro/atualização), grupos, itens, empenhos, notas fiscais e rateios |
 | `campus` | recibos do próprio campus (e itens desses recibos) |
 | `outros` | somente visualização (padrão de novos usuários) |
 

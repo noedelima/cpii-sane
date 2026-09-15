@@ -57,6 +57,7 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
     </p>
     <ol class="passos">
       <li>Abra <strong>Grupos → + Novo grupo</strong> (ou edite um existente).</li>
+      <li>Para cadastrar uma empresa, use <strong>Fornecedores → Novo fornecedor</strong> ou <strong>+ Novo fornecedor</strong> na tela do grupo. Informe código/nome curto e razão social; CNPJ e contatos são opcionais. No grupo, a empresa criada é selecionada automaticamente, preservando os campos já preenchidos.</li>
       <li>Preencha identificação e selecione o <strong>fornecedor</strong>; informe o <strong>CNPJ</strong> (gravado no cadastro do fornecedor).</li>
       <li>Em <strong>Itens do grupo</strong>, cadastre cada item: CatMat, nome, unidade e valor unitário.</li>
       <li>Para reajuste contratual, use <strong>Reajuste contratual (apostilamento)</strong>: informe o percentual, a data-base e a referência, e aplique.</li>

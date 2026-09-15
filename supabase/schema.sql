@@ -1223,7 +1223,7 @@ begin
 end $pol15$;
 
 -- 15.6) CNPJ do fornecedor editável a partir da tela de Grupo: a SANE passa a
--- poder atualizar fornecedores (antes só admin). Inserção segue restrita a admin.
+-- poder atualizar fornecedores (antes só admin). Inserção liberada na seção 33.
 drop policy if exists p_fornecedores_update on public.fornecedores;
 create policy p_fornecedores_update on public.fornecedores for update to authenticated
   using (public.current_papel() in ('sane','admin'))
@@ -2698,3 +2698,12 @@ join public.campi ca       on ca.id = r.campus_id
 join public.grupos g       on g.id = r.grupo_id
 left join public.fornecedores f on f.id = g.fornecedor_id
 join public.itens i        on i.id = o.item_id;
+
+-- 33. Cadastro de fornecedores pela SANE
+-- Permite à SANE cadastrar fornecedores; exclusão continua somente admin.
+-- Pode ser reaplicada sem executar schema/seed completos.
+begin;
+drop policy if exists p_fornecedores_insert on public.fornecedores;
+create policy p_fornecedores_insert on public.fornecedores for insert to authenticated
+  with check (public.current_papel() in ('sane','admin'));
+commit;

@@ -52,6 +52,7 @@ onMounted(load);
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
       <h1 class="text-2xl font-semibold">Grupos de fornecimento</h1>
+      <RouterLink v-if="auth.isSane" to="/fornecedores" class="btn-secondary">Fornecedores</RouterLink>
       <RouterLink v-if="auth.isSane" to="/grupos/novo" class="btn-primary">
         + Novo grupo
       </RouterLink>
