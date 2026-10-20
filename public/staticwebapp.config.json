@@ -9,6 +9,20 @@
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin"
   },
+  "routes": [
+    {
+      "route": "/assets/*",
+      "headers": { "Cache-Control": "public, max-age=31536000, immutable" }
+    },
+    {
+      "route": "/index.html",
+      "headers": { "Cache-Control": "no-cache, must-revalidate" }
+    },
+    {
+      "route": "/",
+      "headers": { "Cache-Control": "no-cache, must-revalidate" }
+    }
+  ],
   "responseOverrides": {
     "404": { "rewrite": "/index.html", "statusCode": 200 }
   }
