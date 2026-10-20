@@ -4,6 +4,8 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
+import { getDiasRecibo } from "@/lib/config";
+import { avisoDataRecibo, listarDias, semRestricao } from "@/lib/dias-semana";
 import PdfUpload from "@/components/PdfUpload.vue";
 import type { Campus, Grupo, Item, NotaFiscal, Recibo } from "@/types/database";
 
@@ -48,6 +50,15 @@ const itensDoGrupo = ref<Item[]>([]);
 
 const numero = ref("");
 const dataRecebimento = ref(new Date().toISOString().slice(0, 10));
+
+// Dias da semana aceitos na data do pedido (configuravel). O bloqueio de
+// verdade e o gatilho no banco; aqui a tela avisa antes de tentar salvar.
+const diasPermitidos = ref<number[]>([0, 1, 2, 3, 4, 5, 6]);
+/** SANE e admin resolvem excecoes: para eles o aviso e informativo. */
+const diaBloqueia = computed(() => !auth.isSane);
+const avisoData = computed(() =>
+  avisoDataRecibo(dataRecebimento.value, diasPermitidos.value)
+);
 const campusId = ref<number | null>(null);
 const grupoId = ref<number | null>(null);
 const observacoes = ref("");
@@ -476,6 +487,10 @@ async function salvar() {
     error.value = "Preencha número, campus, grupo e pelo menos 1 item.";
     return;
   }
+  if (avisoData.value && diaBloqueia.value) {
+    error.value = `${avisoData.value} Ajuste a data ou peça à SANE para lançar a exceção.`;
+    return;
+  }
   saving.value = true;
   try {
     if (editMode.value && reciboId.value) {
@@ -571,6 +586,7 @@ async function salvar() {
 }
 
 onMounted(async () => {
+  diasPermitidos.value = await getDiasRecibo();
   await loadReferenceData();
   await loadRecibo();
 });
@@ -599,9 +615,34 @@ onMounted(async () => {
           </div>
           <div>
             <label class="label">Data do pedido</label>
-            <input v-model="dataRecebimento" type="date" class="input" required :disabled="!podeEditarDados" />
+            <input
+              v-model="dataRecebimento"
+              type="date"
+              class="input"
+              required
+              :disabled="!podeEditarDados"
+              :class="avisoData ? 'border-amber-400 dark:border-amber-600' : ''"
+            />
+            <p
+              v-if="avisoData"
+              class="mt-1 text-xs"
+              :class="diaBloqueia
+                ? 'text-red-600 dark:text-red-400'
+                : 'text-amber-600 dark:text-amber-400'"
+            >
+              {{ avisoData }}
+              <template v-if="diaBloqueia">
+                Ajuste a data ou peça à SANE para lançar a exceção.
+              </template>
+              <template v-else>
+                Você pode salvar assim mesmo, por ser SANE/admin.
+              </template>
+            </p>
             <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Data do pedido a que o recibo se refere. Se a entrega ocorreu em outro dia, registre nas observações.
+              <template v-if="!semRestricao(diasPermitidos)">
+                Esta instituição aceita pedidos em {{ listarDias(diasPermitidos) }}.
+              </template>
             </p>
           </div>
           <div>

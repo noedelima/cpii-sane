@@ -1,6 +1,7 @@
 // Configurações globais (tabela public.configuracoes), com cache em memória.
 // Usado pela aba de Configurações (admin) e pelos geradores de PDF.
 import { supabase } from "@/lib/supabase";
+import { parseDiasSemana } from "@/lib/dias-semana";
 import type { Configuracao } from "@/types/database";
 
 let cache: Map<string, string> | null = null;
@@ -46,6 +47,16 @@ export async function getCabecalho(): Promise<CabecalhoPdf> {
 export async function getLocalEmissao(): Promise<string> {
   const m = await carregarConfig();
   return pick(m, "local_emissao_padrao", "Rio de Janeiro");
+}
+
+/**
+ * Dias da semana aceitos na data de recebimento do recibo (0=domingo).
+ * A validacao de verdade e o gatilho valida_dia_recibo no banco; isto serve
+ * para a tela avisar antes de o usuario tentar salvar.
+ */
+export async function getDiasRecibo(): Promise<number[]> {
+  const m = await carregarConfig();
+  return parseDiasSemana(m.get("recibo_dias_semana"));
 }
 
 /**
