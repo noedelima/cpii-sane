@@ -2742,3 +2742,20 @@ insert into public.configuracoes (chave, valor, descricao) values
   ('reforco_prazo_dias', '45',
    'Prazo médio, em dias corridos, para tramitar um reforço de empenho. Usado para calcular a data-limite de abertura do processo no painel de reforços.')
 on conflict (chave) do nothing;
+
+-- Serie mensal de consumo a partir dos RECIBOS: e ela que alimenta a
+-- projecao. A serie de NF acima continua servindo as telas de consumo, mas
+-- nao serve para projetar - a NF e evento de faturamento e sai em blocos
+-- irregulares, deixando buracos que nao correspondem a consumo nenhum. O
+-- recibo e datado pelo recebimento no campus e acontece as dezenas por mes.
+create or replace view public.vw_item_recibo_mensal
+with (security_invoker = on) as
+select
+  ri.item_id,
+  r.grupo_id,
+  to_char(r.data_recebimento, 'YYYY-MM')  as mes,
+  sum(ri.quantidade)::numeric(14,4)       as quantidade
+from public.recibos_itens ri
+join public.recibos r on r.id = ri.recibo_id and r.deleted_at is null
+where r.data_recebimento is not null
+group by ri.item_id, r.grupo_id, to_char(r.data_recebimento, 'YYYY-MM');

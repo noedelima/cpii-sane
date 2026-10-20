@@ -36,6 +36,9 @@ export interface ParametrosProjecao {
   minObservacoes?: number;
 }
 
+/** Por que a projecao nao arriscou uma data. */
+export type MotivoSemData = "historico" | "irregular" | null;
+
 export interface ResultadoProjecao {
   /** Meses observados, do primeiro consumo ao ultimo mes com dados. */
   n: number;
@@ -55,10 +58,18 @@ export interface ResultadoProjecao {
   confianca: Confianca;
   /** Historico curto demais para projetar data (so ritmo e tendencia). */
   historicoInsuficiente: boolean;
+  /**
+   * As duas projecoes discordam demais (mais de 6 meses). A faixa fica larga
+   * a ponto de nao orientar nada, entao a tela mostra so a ponta curta.
+   */
+  instavel: boolean;
+  motivoSemData: MotivoSemData;
 }
 
 /** Horizonte maximo da projecao, em meses. */
 const HORIZONTE_MESES = 60;
+/** Divergencia entre as duas projecoes que torna a faixa inutil, em dias. */
+const DIAS_INSTAVEL = 180;
 
 // ---------------------------------------------------------------- calendario
 
@@ -165,6 +176,8 @@ export function projetar(p: ParametrosProjecao): ResultadoProjecao {
     dataLimite: null,
     confianca: "baixa",
     historicoInsuficiente: true,
+    instavel: false,
+    motivoSemData: "historico",
   };
 
   const comConsumo = p.serie.filter((s) => s.quantidade > 0);
@@ -193,7 +206,10 @@ export function projetar(p: ParametrosProjecao): ResultadoProjecao {
         : "queda"
       : "estavel";
 
-  const confianca: Confianca = n >= 12 ? "alta" : n >= 6 ? "media" : "baixa";
+  // Calibrado para o historico real disponivel: a serie de recibos comeca em
+  // 2026-05, entao exigir 12 meses marcaria tudo como baixa e o rotulo
+  // perderia a funcao de distinguir.
+  const confianca: Confianca = n >= 9 ? "alta" : n >= 5 ? "media" : "baixa";
 
   const base: ResultadoProjecao = {
     ...vazio,
@@ -204,6 +220,7 @@ export function projetar(p: ParametrosProjecao): ResultadoProjecao {
     tendencia,
     confianca,
     historicoInsuficiente: n < min,
+    motivoSemData: null,
   };
 
   // Saldo ja esgotado em TODOS os empenhos: o reforco e para ontem.
@@ -217,7 +234,11 @@ export function projetar(p: ParametrosProjecao): ResultadoProjecao {
   }
 
   // Historico curto demais: informa ritmo e tendencia, mas nao arrisca data.
-  if (n < min) return base;
+  if (n < min) return { ...base, motivoSemData: "historico" };
+
+  // Mediana zero significa que o item ficou sem compra na maioria dos meses:
+  // consumo esporadico, em que projetar data e inventar precisao.
+  if (medianaMensal <= 0) return { ...base, motivoSemData: "irregular" };
 
   // Projeta a partir do mes seguinte ao ultimo com dados, nunca no passado.
   const inicio = Math.max(fim + 1, indiceDaData(p.hoje));
@@ -227,8 +248,7 @@ export function projetar(p: ParametrosProjecao): ResultadoProjecao {
     inicio,
     (t) => intercepto + inclinacao * (n + t)
   );
-  const esgotamentoMediana =
-    medianaMensal > 0 ? caminhar(p.saldo, inicio, () => medianaMensal) : null;
+  const esgotamentoMediana = caminhar(p.saldo, inicio, () => medianaMensal);
 
   const datas = [esgotamentoLinear, esgotamentoMediana].filter(
     (d): d is Date => d != null
@@ -240,12 +260,21 @@ export function projetar(p: ParametrosProjecao): ResultadoProjecao {
     ? new Date(Math.max(...datas.map((d) => d.getTime())))
     : null;
 
+  // Uma das projecoes nao esgota no horizonte, ou as duas discordam por mais
+  // de meio ano: a faixa deixa de orientar e so a ponta curta vale.
+  const instavel =
+    !!esgotamentoCedo &&
+    (datas.length < 2 ||
+      (esgotamentoTarde!.getTime() - esgotamentoCedo.getTime()) / 86_400_000 >
+        DIAS_INSTAVEL);
+
   return {
     ...base,
     esgotamentoLinear,
     esgotamentoMediana,
     esgotamentoCedo,
     esgotamentoTarde,
+    instavel,
     dataLimite: esgotamentoCedo ? somaDias(esgotamentoCedo, -p.prazoDias) : null,
   };
 }

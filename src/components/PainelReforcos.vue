@@ -76,11 +76,17 @@ const badge: Record<SituacaoReforco, { label: string; cls: string }> = {
 
 const seta: Record<string, string> = { alta: "↑", queda: "↓", estavel: "→" };
 
-/** Faixa de esgotamento: uma data so quando as duas projeções coincidem. */
+/**
+ * Faixa de esgotamento. Quando as duas projeções discordam demais a faixa
+ * deixa de orientar ("26/11/2026 – 10/01/2031" não ajuda ninguém): mostra-se
+ * só a ponta curta, com a ressalva.
+ */
 function faixa(p: ResultadoProjecao): string {
-  if (p.historicoInsuficiente) return "histórico curto";
+  if (p.motivoSemData === "historico") return "histórico curto";
+  if (p.motivoSemData === "irregular") return "consumo irregular";
   if (!p.esgotamentoCedo) return "—";
   const a = fmtDate(iso(p.esgotamentoCedo));
+  if (p.instavel) return `a partir de ${a}`;
   const b = fmtDate(iso(p.esgotamentoTarde));
   return a === b ? a : `${a} – ${b}`;
 }
@@ -103,9 +109,11 @@ async function load() {
           .order("empenho_id")
           .range(ini, fim)
       ),
+      // Ritmo vem dos RECIBOS, nao das NFs: a NF e evento de faturamento e
+      // deixa buracos na serie que nao correspondem a consumo nenhum.
       buscarTudo<Record<string, unknown>>((ini, fim) =>
         supabase
-          .from("vw_item_consumo_mensal")
+          .from("vw_item_recibo_mensal")
           .select("item_id, mes, quantidade")
           .order("item_id")
           .order("mes")
@@ -183,8 +191,8 @@ async function load() {
     linhas.value = out;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    error.value = /vw_item_consumo_mensal|does not exist|relation|schema cache/i.test(msg)
-      ? "A view de série mensal ainda não existe no banco. Rode a migração 20261020_projecao_reforco.sql no SQL Editor do Supabase e recarregue."
+    error.value = /vw_item_recibo_mensal|does not exist|relation|schema cache/i.test(msg)
+      ? "A view de série mensal de recibos ainda não existe no banco. Rode a migração 20261020b_recibo_mensal.sql no SQL Editor do Supabase e recarregue."
       : msg;
   } finally {
     loading.value = false;
@@ -360,14 +368,17 @@ onMounted(load);
                 >
               </td>
               <td class="px-3 py-2 whitespace-nowrap">
-                <span :class="l.proj.historicoInsuficiente ? 'text-slate-400 italic' : ''">
+                <span :class="l.proj.motivoSemData ? 'text-slate-400 italic' : ''">
                   {{ faixa(l.proj) }}
                 </span>
+                <div v-if="l.proj.instavel" class="text-xs text-amber-600 dark:text-amber-400">
+                  projeções discordam
+                </div>
               </td>
               <td class="px-3 py-2 whitespace-nowrap font-medium">
                 {{ fmtDate(iso(l.proj.dataLimite)) }}
                 <div
-                  v-if="l.proj.confianca !== 'alta' && !l.proj.historicoInsuficiente"
+                  v-if="l.proj.confianca !== 'alta' && !l.proj.motivoSemData"
                   class="text-xs font-normal text-slate-400"
                   :title="`${l.proj.n} mês(es) de histórico`"
                 >
@@ -399,12 +410,13 @@ onMounted(load);
       <p
         class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700"
       >
-        O saldo é somado entre todos os empenhos ativos do item. A faixa vem de duas
-        projeções — regressão sobre os meses observados e mediana — e
+        O saldo é somado entre todos os empenhos ativos do item. O ritmo vem dos
+        <strong>recibos</strong> (recebimento nos campi), não das notas fiscais, que saem em
+        blocos e distorceriam a série. A faixa vem de duas projeções — regressão e mediana — e
         <strong>Abrir até</strong> usa a ponta mais próxima, menos {{ prazoDias }} dias.
-        A projeção não modela férias nem greve; itens com poucos meses de histórico aparecem
-        como “histórico curto”, sem data. É estimativa: confira o item antes de instruir o
-        processo.
+        A projeção não modela férias nem greve. Itens com histórico curto ou consumo
+        esporádico aparecem sem data, em vez de ganharem uma data sem lastro.
+        É estimativa: confira o item antes de instruir o processo.
       </p>
     </template>
   </div>

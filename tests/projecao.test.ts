@@ -93,6 +93,44 @@ describe("projetar", () => {
     expect(r.mediaMensal).toBeCloseTo((120 * 3) / 4, 5);
   });
 
+  it("nao projeta data quando o consumo e esporadico (mediana zero)", () => {
+    // comprou em dois meses de seis: a mediana e zero e a data seria invencao.
+    // (a serie e aparada no ultimo mes COM consumo, entao os zeros ficam no meio)
+    const r = projetar({
+      saldo: 300,
+      serie: serie("2026-04", [500, 0, 0, 0, 0, 400]),
+      prazoDias: 45,
+      hoje,
+    });
+    expect(r.medianaMensal).toBe(0);
+    expect(r.motivoSemData).toBe("irregular");
+    expect(r.esgotamentoCedo).toBeNull();
+    expect(situacao(r, 300, hoje)).toBe("ok");
+  });
+
+  it("marca como instavel a faixa larga demais para orientar", () => {
+    // consumo em forte alta: a reta esgota em meses, a mediana so daqui a anos
+    const r = projetar({
+      saldo: 2000,
+      serie: serie("2026-01", [5, 5, 10, 20, 60, 120, 200, 300, 400, 500]),
+      prazoDias: 45,
+      hoje,
+    });
+    expect(r.instavel).toBe(true);
+    // a ponta curta continua mandando no alerta
+    expect(r.dataLimite!.getTime()).toBeLessThan(r.esgotamentoCedo!.getTime());
+  });
+
+  it("nao marca instabilidade quando as projecoes se aproximam", () => {
+    const r = projetar({
+      saldo: 300,
+      serie: serie("2026-03", [100, 100, 100, 100, 100, 100, 100, 100]),
+      prazoDias: 45,
+      hoje,
+    });
+    expect(r.instavel).toBe(false);
+  });
+
   it("nao projeta data com historico curto demais", () => {
     const r = projetar({
       saldo: 100,
@@ -102,6 +140,7 @@ describe("projetar", () => {
     });
     expect(r.n).toBe(2);
     expect(r.historicoInsuficiente).toBe(true);
+    expect(r.motivoSemData).toBe("historico");
     expect(r.esgotamentoCedo).toBeNull();
     expect(r.dataLimite).toBeNull();
     // mas ainda informa o ritmo observado
@@ -140,7 +179,13 @@ describe("projetar", () => {
   it("gradua a confianca pelo tamanho do historico", () => {
     const curto = projetar({
       saldo: 100,
-      serie: serie("2026-05", [10, 10, 10, 10]),
+      serie: serie("2026-07", [10, 10, 10, 10]),
+      prazoDias: 45,
+      hoje,
+    });
+    const medio = projetar({
+      saldo: 100,
+      serie: serie("2026-05", [10, 10, 10, 10, 10, 10]),
       prazoDias: 45,
       hoje,
     });
@@ -151,6 +196,8 @@ describe("projetar", () => {
       hoje,
     });
     expect(curto.confianca).toBe("baixa");
+    // os seis meses de recibo disponiveis hoje valem confianca media
+    expect(medio.confianca).toBe("media");
     expect(longo.confianca).toBe("alta");
   });
 
