@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { buscarTudo } from "@/lib/consulta";
 import { msgErro } from "@/lib/erro";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
@@ -289,10 +290,15 @@ async function carregarAnexosDosRecibos() {
   anexosPorRecibo.value = new Map();
   const ids = recibosVinculados.value.map((r) => r.id);
   if (!ids.length) return;
-  const { data } = await supabase
-    .from("recibos_anexos")
-    .select("recibo_id, link_pdf")
-    .in("recibo_id", ids);
+  // Paginado: sem isso a API corta em 1000 linhas e anexos somem do PDF.
+  const data = await buscarTudo<{ recibo_id: number; link_pdf: string }>((ini, fim) =>
+    supabase
+      .from("recibos_anexos")
+      .select("recibo_id, link_pdf")
+      .in("recibo_id", ids)
+      .order("id")
+      .range(ini, fim)
+  );
   const m = new Map<number, string[]>();
   for (const a of ((data as { recibo_id: number; link_pdf: string }[] | null) ?? [])) {
     const arr = m.get(a.recibo_id) ?? [];
@@ -307,12 +313,17 @@ async function calcularValoresRecibos() {
   valoresRecibos.value = new Map();
   const ids = recibosVinculados.value.map((r) => r.id);
   if (!ids.length) return;
-  const { data: ris } = await supabase
-    .from("vw_recibo_item_valor")
-    .select("recibo_id, quantidade, preco_unitario")
-    .in("recibo_id", ids);
   type RI = { recibo_id: number; quantidade: number; preco_unitario: number | null };
-  const linhas = (ris as RI[] | null) ?? [];
+  // Paginado: muitos recibos vinculados passam de 1000 itens e a API corta em
+  // silencio, o que subestimaria o valor das NFs.
+  const linhas = await buscarTudo<RI>((ini, fim) =>
+    supabase
+      .from("vw_recibo_item_valor")
+      .select("recibo_id, quantidade, preco_unitario")
+      .in("recibo_id", ids)
+      .order("recibo_item_id")
+      .range(ini, fim)
+  );
   if (!linhas.length) return;
   const m = new Map<number, number>();
   for (const l of linhas) {

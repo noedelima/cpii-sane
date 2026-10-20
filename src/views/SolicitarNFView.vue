@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { buscarTudo } from "@/lib/consulta";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { carregarLogo } from "@/lib/pdf-ateste";
@@ -37,7 +38,12 @@ const dataDe = ref("");
 const dataAte = ref("");
 const observacoes = ref("");
 
+// Teto da lista de recibos. Se a consulta devolver o teto, pode haver recibos
+// mais antigos de fora da tela — por isso o aviso para filtrar por data.
+const LIMITE_RECIBOS = 300;
+
 const recibos = ref<ReciboRow[]>([]);
+const limiteAtingido = ref(false);
 const selecionados = ref<Set<number>>(new Set());
 const reciboItens = ref<Map<number, ReciboItemRow[]>>(new Map());
 const itensMeta = ref<Map<number, { descricao: string; codigo_catmat: string | null; unidade: string; preco_unitario: number }>>(new Map());
@@ -151,7 +157,7 @@ async function carregarRecibos() {
     .from("recibos")
     .select("*, campi (nome)")
     .order("data_recebimento", { ascending: false })
-    .limit(300);
+    .limit(LIMITE_RECIBOS);
   if (grupoFiltro.value) q = q.eq("grupo_id", grupoFiltro.value);
   else q = q.in("grupo_id", gruposIds);
   if (dataDe.value) q = q.gte("data_recebimento", dataDe.value);
@@ -164,6 +170,7 @@ async function carregarRecibos() {
     return;
   }
   recibos.value = (data as ReciboRow[] | null) ?? [];
+  limiteAtingido.value = recibos.value.length >= LIMITE_RECIBOS;
   selecionados.value = new Set(recibos.value.map((r) => r.id));
   await carregarItensDosRecibos(token);
   if (token === reqToken) loading.value = false;
@@ -176,12 +183,17 @@ async function carregarItensDosRecibos(token: number) {
     itensMeta.value = new Map();
     return;
   }
-  const { data: ris } = await supabase
-    .from("recibos_itens")
-    .select("recibo_id, item_id, quantidade, unidade")
-    .in("recibo_id", ids);
+  // Pagina a consulta: sem isso a API corta em 1000 linhas e os itens dos
+  // recibos MAIS RECENTES somem da consolidacao, sem erro nenhum.
+  const linhas = await buscarTudo<ReciboItemRow>((de, ate) =>
+    supabase
+      .from("recibos_itens")
+      .select("recibo_id, item_id, quantidade, unidade")
+      .in("recibo_id", ids)
+      .order("id")
+      .range(de, ate)
+  );
   if (token !== reqToken) return; // resultado obsoleto
-  const linhas = (ris as ReciboItemRow[] | null) ?? [];
   // mapa LOCAL, atribuído de uma vez no fim (evita acúmulo entre chamadas concorrentes)
   const mapa = new Map<number, ReciboItemRow[]>();
   for (const ri of linhas) {
@@ -395,11 +407,14 @@ async function rebaixarPdf(s: SolicRow) {
         .sort((a, b) => a.descricao.localeCompare(b.descricao));
     } else {
       const recIds = recs.map((r) => r.id);
-      const { data: ris } = await supabase
-        .from("recibos_itens")
-        .select("recibo_id, item_id, quantidade, unidade")
-        .in("recibo_id", recIds);
-      const linhas = (ris as ReciboItemRow[] | null) ?? [];
+      const linhas = await buscarTudo<ReciboItemRow>((de, ate) =>
+        supabase
+          .from("recibos_itens")
+          .select("recibo_id, item_id, quantidade, unidade")
+          .in("recibo_id", recIds)
+          .order("id")
+          .range(de, ate)
+      );
       const itemIds = Array.from(new Set(linhas.map((l) => l.item_id)));
       const metaMap = new Map<number, { descricao: string; codigo_catmat: string | null; unidade: string; preco_unitario: number }>();
       if (itemIds.length) {
@@ -514,6 +529,13 @@ onMounted(async () => {
         <button class="btn-ghost text-sm" @click="toggleTodos">
           {{ todosMarcados ? "Desmarcar todos" : "Marcar todos" }}
         </button>
+      </div>
+      <div
+        v-if="limiteAtingido && !loading"
+        class="px-4 py-2 border-b border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-200"
+      >
+        A lista mostra no máximo {{ LIMITE_RECIBOS }} recibos (os mais recentes). Pode haver
+        recibos mais antigos fora da tela — use o filtro de data para alcançá-los.
       </div>
       <div v-if="loading" class="p-6 text-center text-slate-500 dark:text-slate-400">Carregando…</div>
       <div v-else-if="!recibos.length" class="p-6 text-center text-slate-500 dark:text-slate-400">

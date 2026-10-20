@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { supabase } from "@/lib/supabase";
+import { buscarTudo } from "@/lib/consulta";
 import type { Grupo } from "@/types/database";
 
 // Linhas das views vw_empenho_item_saldo / vw_empenho_item_consumo.
@@ -83,15 +84,23 @@ async function load() {
   error.value = null;
   empenhoFiltro.value = null;
   try {
-    let qs = supabase.from("vw_empenho_item_saldo").select("*");
-    let qc = supabase.from("vw_empenho_item_consumo").select("*");
-    if (grupoFiltro.value) {
-      qs = qs.eq("grupo_id", grupoFiltro.value);
-      qc = qc.eq("grupo_id", grupoFiltro.value);
-    }
-    const [s, c] = await Promise.all([qs, qc]);
-    if (s.error) throw s.error;
-    if (c.error) throw c.error;
+    // Consultas paginadas: a serie de consumo passa facil de 1000 linhas e a
+    // API corta em silencio, o que subnotificaria o consumo.
+    const g = grupoFiltro.value;
+    const [sData, cData] = await Promise.all([
+      buscarTudo<Record<string, unknown>>((de, ate) => {
+        let q = supabase.from("vw_empenho_item_saldo").select("*");
+        if (g) q = q.eq("grupo_id", g);
+        return q.order("empenho_id").order("item_id").range(de, ate);
+      }),
+      buscarTudo<Record<string, unknown>>((de, ate) => {
+        let q = supabase.from("vw_empenho_item_consumo").select("*");
+        if (g) q = q.eq("grupo_id", g);
+        return q.order("nf_id").order("empenho_id").order("item_id").range(de, ate);
+      }),
+    ]);
+    const s = { data: sData };
+    const c = { data: cData };
     saldos.value = ((s.data as Record<string, unknown>[] | null) ?? []).map((r) => ({
       empenho_id: num(r.empenho_id),
       empenho: String(r.empenho ?? ""),

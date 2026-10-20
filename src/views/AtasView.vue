@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { buscarTudo } from "@/lib/consulta";
 import { fmtDate, fmtMoney } from "@/lib/format";
 
 interface AtaResumo {
@@ -61,14 +62,33 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const [r, e, i] = await Promise.all([
-      supabase.from("vw_ata_resumo").select("*").order("ata"),
-      supabase.from("vw_ata_empenho").select("*").order("data_emissao"),
-      supabase.from("vw_ata_item").select("*").order("descricao"),
+    // Consultas paginadas: itens de ata passam de 1000 linhas e a API corta em
+    // silencio, fazendo itens desaparecerem do saldo sem erro nenhum.
+    const [rData, eData, iData] = await Promise.all([
+      buscarTudo<Record<string, unknown>>((de, ate) =>
+        supabase.from("vw_ata_resumo").select("*").order("ata").range(de, ate)
+      ),
+      buscarTudo<Record<string, unknown>>((de, ate) =>
+        supabase
+          .from("vw_ata_empenho")
+          .select("*")
+          .order("data_emissao")
+          .order("empenho_id")
+          .range(de, ate)
+      ),
+      buscarTudo<Record<string, unknown>>((de, ate) =>
+        supabase
+          .from("vw_ata_item")
+          .select("*")
+          .order("descricao")
+          .order("ata")
+          .order("item_id")
+          .range(de, ate)
+      ),
     ]);
-    if (r.error) throw r.error;
-    if (e.error) throw e.error;
-    if (i.error) throw i.error;
+    const r = { data: rData };
+    const e = { data: eData };
+    const i = { data: iData };
 
     resumos.value = ((r.data as Record<string, unknown>[] | null) ?? []).map((x) => ({
       ata: String(x.ata ?? ""),

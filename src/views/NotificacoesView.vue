@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { supabase } from "@/lib/supabase";
+import { buscarTudo } from "@/lib/consulta";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
 
@@ -53,11 +54,16 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const { data, error: err } = await supabase
-      .from("vw_ocorrencias")
-      .select("*")
-      .order("data_recebimento", { ascending: false });
-    if (err) throw err;
+    // Consulta paginada: o historico de ocorrencias cresce indefinidamente e a
+    // API corta em 1000 linhas sem erro nenhum.
+    const data = await buscarTudo<Record<string, unknown>>((ini, fim) =>
+      supabase
+        .from("vw_ocorrencias")
+        .select("*")
+        .order("data_recebimento", { ascending: false })
+        .order("id", { ascending: false })
+        .range(ini, fim)
+    );
     linhas.value = ((data as Record<string, unknown>[] | null) ?? []).map((x) => ({
       id: num(x.id),
       recibo_id: num(x.recibo_id),
