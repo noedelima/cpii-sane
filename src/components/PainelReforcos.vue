@@ -1,7 +1,10 @@
 <script setup lang="ts">
-// Painel de reforcos: projeta quando o saldo de cada item de empenho acaba e
-// mostra ate quando o processo de reforco precisa ser aberto. A matematica
-// fica em @/lib/projecao (com testes); aqui so se monta a serie e a tela.
+// Painel de reforcos: projeta quando o saldo de cada ITEM deve acabar e mostra
+// ate quando o processo de reforco precisa ser aberto.
+//
+// A consolidacao e por item, somando todos os empenhos ativos: um item pode
+// estar zerado numa NE e ter saldo em outra, e quem compra olha o estoque do
+// item, nao a NE. A matematica fica em @/lib/projecao (com testes).
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { supabase } from "@/lib/supabase";
@@ -16,37 +19,15 @@ import {
   type SituacaoReforco,
 } from "@/lib/projecao";
 
-interface SaldoRow {
-  empenho_id: number;
-  empenho: string;
-  status: string;
-  item_id: number;
-  descricao: string;
-  codigo_catmat: string | null;
-  unidade: string;
-  grupo_id: number | null;
-  grupo: string | null;
-  saldo_qtd: number;
-}
-
-interface MensalRow {
-  empenho_id: number;
-  item_id: number;
-  grupo_id: number | null;
-  mes: string;
-  quantidade: number;
-}
-
 interface Linha {
-  chave: string;
-  empenho_id: number;
-  empenho: string;
   item_id: number;
   descricao: string;
   codigo_catmat: string | null;
   unidade: string;
   grupo: string | null;
   saldo: number;
+  /** Quantos empenhos ativos somam esse saldo. */
+  empenhos: number;
   proj: ResultadoProjecao;
   sit: SituacaoReforco;
 }
@@ -58,10 +39,10 @@ const error = ref<string | null>(null);
 const verTudo = ref(false);
 
 const num = (v: unknown) => (v == null ? 0 : Number(v));
-const fmtQtd = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+const fmtQtd = (n: number) =>
+  n.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
-/** So entram no painel os itens que exigem alguma acao. */
 const ordem: Record<SituacaoReforco, number> = {
   esgotado: 0,
   atrasado: 1,
@@ -87,14 +68,22 @@ const badge: Record<SituacaoReforco, { label: string; cls: string }> = {
     label: "Monitorar",
     cls: "bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300",
   },
-  ok: { label: "OK", cls: "bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300" },
+  ok: {
+    label: "OK",
+    cls: "bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300",
+  },
 };
 
-const setaTendencia: Record<string, string> = {
-  alta: "↑",
-  queda: "↓",
-  estavel: "→",
-};
+const seta: Record<string, string> = { alta: "↑", queda: "↓", estavel: "→" };
+
+/** Faixa de esgotamento: uma data so quando as duas projeções coincidem. */
+function faixa(p: ResultadoProjecao): string {
+  if (p.historicoInsuficiente) return "histórico curto";
+  if (!p.esgotamentoCedo) return "—";
+  const a = fmtDate(iso(p.esgotamentoCedo));
+  const b = fmtDate(iso(p.esgotamentoTarde));
+  return a === b ? a : `${a} – ${b}`;
+}
 
 async function load() {
   loading.value = true;
@@ -107,153 +96,148 @@ async function load() {
         supabase
           .from("vw_empenho_item_saldo")
           .select(
-            "empenho_id, empenho, status, item_id, descricao, codigo_catmat, unidade, grupo_id, grupo, saldo_qtd"
+            "empenho_id, status, item_id, descricao, codigo_catmat, unidade, grupo, saldo_qtd"
           )
           .eq("status", "ativo")
-          .order("empenho_id")
           .order("item_id")
+          .order("empenho_id")
           .range(ini, fim)
       ),
       buscarTudo<Record<string, unknown>>((ini, fim) =>
         supabase
           .from("vw_item_consumo_mensal")
-          .select("empenho_id, item_id, grupo_id, mes, quantidade")
-          .order("empenho_id")
+          .select("item_id, mes, quantidade")
           .order("item_id")
           .order("mes")
           .range(ini, fim)
       ),
     ]);
 
-    const saldos: SaldoRow[] = saldosData.map((r) => ({
-      empenho_id: num(r.empenho_id),
-      empenho: String(r.empenho ?? ""),
-      status: String(r.status ?? ""),
-      item_id: num(r.item_id),
-      descricao: String(r.descricao ?? ""),
-      codigo_catmat: (r.codigo_catmat as string | null) ?? null,
-      unidade: String(r.unidade ?? ""),
-      grupo_id: r.grupo_id == null ? null : num(r.grupo_id),
-      grupo: (r.grupo as string | null) ?? null,
-      saldo_qtd: num(r.saldo_qtd),
-    }));
-
-    const mensal: MensalRow[] = mensalData.map((r) => ({
-      empenho_id: num(r.empenho_id),
-      item_id: num(r.item_id),
-      grupo_id: r.grupo_id == null ? null : num(r.grupo_id),
-      mes: String(r.mes ?? ""),
-      quantidade: num(r.quantidade),
-    }));
-
-    // Serie por empenho+item e calendario letivo por grupo (meses em que
-    // QUALQUER item do grupo teve consumo).
-    const serie = new Map<string, SerieMes[]>();
-    const mesesPorGrupo = new Map<number, Set<string>>();
-    for (const m of mensal) {
-      const k = m.empenho_id + "|" + m.item_id;
-      const arr = serie.get(k) ?? [];
-      arr.push({ mes: m.mes, quantidade: m.quantidade });
-      serie.set(k, arr);
-      if (m.grupo_id != null && m.quantidade > 0) {
-        const s = mesesPorGrupo.get(m.grupo_id) ?? new Set<string>();
-        s.add(m.mes);
-        mesesPorGrupo.set(m.grupo_id, s);
-      }
+    // Saldo consolidado por item (soma dos empenhos ativos).
+    interface Acc {
+      item_id: number;
+      descricao: string;
+      codigo_catmat: string | null;
+      unidade: string;
+      grupo: string | null;
+      saldo: number;
+      empenhos: number;
+    }
+    const porItem = new Map<number, Acc>();
+    for (const r of saldosData) {
+      const id = num(r.item_id);
+      const a = porItem.get(id) ?? {
+        item_id: id,
+        descricao: String(r.descricao ?? ""),
+        codigo_catmat: (r.codigo_catmat as string | null) ?? null,
+        unidade: String(r.unidade ?? ""),
+        grupo: (r.grupo as string | null) ?? null,
+        saldo: 0,
+        empenhos: 0,
+      };
+      a.saldo += num(r.saldo_qtd);
+      a.empenhos++;
+      porItem.set(id, a);
     }
 
-    const hoje = new Date();
-    const hojeUtc = new Date(
-      Date.UTC(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())
+    // Serie mensal consolidada por item (todos os empenhos juntos).
+    const serie = new Map<number, Map<string, number>>();
+    for (const r of mensalData) {
+      const id = num(r.item_id);
+      const mes = String(r.mes ?? "");
+      const m = serie.get(id) ?? new Map<string, number>();
+      m.set(mes, (m.get(mes) ?? 0) + num(r.quantidade));
+      serie.set(id, m);
+    }
+
+    const agora = new Date();
+    const hoje = new Date(
+      Date.UTC(agora.getFullYear(), agora.getMonth(), agora.getDate())
     );
 
     const out: Linha[] = [];
-    for (const s of saldos) {
-      const chave = s.empenho_id + "|" + s.item_id;
-      const mesesGrupo = s.grupo_id != null ? mesesPorGrupo.get(s.grupo_id) : null;
+    for (const a of porItem.values()) {
+      const m = serie.get(a.item_id);
+      const s: SerieMes[] = m
+        ? [...m.entries()].map(([mes, quantidade]) => ({ mes, quantidade }))
+        : [];
       const proj = projetar({
-        saldo: s.saldo_qtd,
-        serie: serie.get(chave) ?? [],
-        mesesAtivosDoGrupo: mesesGrupo ? [...mesesGrupo] : [],
+        saldo: a.saldo,
+        serie: s,
         prazoDias: prazoDias.value,
-        hoje: hojeUtc,
+        hoje,
       });
-      const sit = situacao(proj, s.saldo_qtd, hojeUtc);
+      const sit = situacao(proj, a.saldo, hoje);
       if (sit === "ok") continue; // o painel so mostra o que pede acao
-      out.push({
-        chave,
-        empenho_id: s.empenho_id,
-        empenho: s.empenho,
-        item_id: s.item_id,
-        descricao: s.descricao,
-        codigo_catmat: s.codigo_catmat,
-        unidade: s.unidade,
-        grupo: s.grupo,
-        saldo: s.saldo_qtd,
-        proj,
-        sit,
-      });
+      out.push({ ...a, proj, sit });
     }
 
-    out.sort((a, b) => {
-      const o = ordem[a.sit] - ordem[b.sit];
+    out.sort((x, y) => {
+      const o = ordem[x.sit] - ordem[y.sit];
       if (o !== 0) return o;
-      const da = a.proj.dataLimite?.getTime() ?? Number.MAX_SAFE_INTEGER;
-      const db = b.proj.dataLimite?.getTime() ?? Number.MAX_SAFE_INTEGER;
-      return da - db;
+      const dx = x.proj.dataLimite?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      const dy = y.proj.dataLimite?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      if (dx !== dy) return dx - dy;
+      return x.descricao.localeCompare(y.descricao);
     });
     linhas.value = out;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     error.value = /vw_item_consumo_mensal|does not exist|relation|schema cache/i.test(msg)
-      ? "A view de série mensal ainda não existe no banco. Rode a seção 34 do schema.sql (ou a migração 20261020_projecao_reforco.sql) no SQL Editor do Supabase e recarregue."
+      ? "A view de série mensal ainda não existe no banco. Rode a migração 20261020_projecao_reforco.sql no SQL Editor do Supabase e recarregue."
       : msg;
   } finally {
     loading.value = false;
   }
 }
 
-const visiveis = computed(() => (verTudo.value ? linhas.value : linhas.value.slice(0, 10)));
+const visiveis = computed(() =>
+  verTudo.value ? linhas.value : linhas.value.slice(0, 10)
+);
 
 const totais = computed(() => {
+  let esgotados = 0;
   let acao = 0;
   let monitorar = 0;
   for (const l of linhas.value) {
-    if (l.sit === "monitorar") monitorar++;
+    if (l.sit === "esgotado") esgotados++;
+    else if (l.sit === "monitorar") monitorar++;
     else acao++;
   }
-  return { acao, monitorar };
+  return { esgotados, acao, monitorar };
 });
 
 function exportarCsv() {
   const l = [
     [
       "Grupo",
-      "Empenho",
       "CatMat",
       "Item",
       "Un.",
-      "Saldo",
+      "Saldo total",
+      "Empenhos ativos",
       "Consumo mediano/mês",
       "Tendência",
       "Esgota (reta)",
       "Esgota (mediana)",
       "Abrir até",
+      "Meses de histórico",
       "Confiança",
       "Situação",
     ],
     ...linhas.value.map((x) => [
       x.grupo ?? "",
-      x.empenho,
       x.codigo_catmat ?? "",
       x.descricao,
       x.unidade,
       String(x.saldo),
+      String(x.empenhos),
       String(x.proj.medianaMensal),
       x.proj.tendencia,
       iso(x.proj.esgotamentoLinear) ?? "",
       iso(x.proj.esgotamentoMediana) ?? "",
       iso(x.proj.dataLimite) ?? "",
+      String(x.proj.n),
       x.proj.confianca,
       badge[x.sit].label,
     ]),
@@ -280,8 +264,8 @@ onMounted(load);
       <div>
         <h2 class="font-medium text-slate-700 dark:text-slate-200">Reforços previstos</h2>
         <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Itens cujo saldo deve acabar a tempo de exigir reforço, considerando
-          {{ prazoDias }} dias de tramitação.
+          Saldo somado de todos os empenhos ativos de cada item, com
+          {{ prazoDias }} dias de tramitação descontados.
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -309,30 +293,27 @@ onMounted(load);
 
     <template v-else>
       <div
-        class="px-4 py-2 border-b border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300"
+        class="px-4 py-2 border-b border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 flex flex-wrap gap-x-4"
       >
-        <strong>{{ totais.acao }}</strong> item(ns) exigindo abertura de reforço
+        <span v-if="totais.esgotados">
+          <strong>{{ totais.esgotados }}</strong> sem saldo em nenhum empenho
+        </span>
+        <span v-if="totais.acao"><strong>{{ totais.acao }}</strong> para abrir reforço</span>
         <span v-if="totais.monitorar">
-          · <strong>{{ totais.monitorar }}</strong> em monitoramento</span
-        >
+          <strong>{{ totais.monitorar }}</strong> em monitoramento
+        </span>
       </div>
 
       <div class="overflow-x-auto">
-        <table class="w-full text-sm min-w-[58rem]">
+        <table class="w-full text-sm min-w-[56rem]">
           <thead
             class="bg-slate-50 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300 uppercase text-xs"
           >
             <tr>
               <th class="px-3 py-2 text-left">Item</th>
-              <th class="px-3 py-2 text-left">Empenho</th>
-              <th class="px-3 py-2 text-right">Saldo</th>
+              <th class="px-3 py-2 text-right">Saldo total</th>
               <th class="px-3 py-2 text-right">Consumo/mês</th>
-              <th class="px-3 py-2 text-left" title="Projeção por regressão linear">
-                Esgota (reta)
-              </th>
-              <th class="px-3 py-2 text-left" title="Projeção pela mediana dos meses letivos">
-                Esgota (mediana)
-              </th>
+              <th class="px-3 py-2 text-left">Esgota entre</th>
               <th class="px-3 py-2 text-left">Abrir até</th>
               <th class="px-3 py-2 text-center">Situação</th>
             </tr>
@@ -340,23 +321,16 @@ onMounted(load);
           <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
             <tr
               v-for="l in visiveis"
-              :key="l.chave"
+              :key="l.item_id"
               class="hover:bg-slate-50 dark:hover:bg-slate-700/40 align-top"
             >
-              <td class="px-3 py-2 min-w-[13rem]">
-                <div class="truncate max-w-[17rem]" :title="l.descricao">{{ l.descricao }}</div>
+              <td class="px-3 py-2 min-w-[14rem]">
+                <div class="truncate max-w-[20rem]" :title="l.descricao">{{ l.descricao }}</div>
                 <div class="text-xs text-slate-400">
                   {{ l.codigo_catmat ?? "—" }} · {{ l.unidade }}
                   <span v-if="l.grupo"> · {{ l.grupo }}</span>
+                  <span> · {{ l.empenhos }} NE{{ l.empenhos > 1 ? "s" : "" }}</span>
                 </div>
-              </td>
-              <td class="px-3 py-2 whitespace-nowrap">
-                <RouterLink
-                  :to="`/empenhos/${l.empenho_id}`"
-                  class="text-cpii-600 dark:text-cpii-300 hover:underline"
-                >
-                  {{ l.empenho }}
-                </RouterLink>
               </td>
               <td
                 class="px-3 py-2 text-right tabular-nums whitespace-nowrap"
@@ -382,30 +356,22 @@ onMounted(load);
                         ? 'Consumo em queda'
                         : 'Consumo estável'
                   "
-                  >{{ setaTendencia[l.proj.tendencia] }}</span
+                  >{{ seta[l.proj.tendencia] }}</span
                 >
               </td>
-              <td
-                class="px-3 py-2 whitespace-nowrap"
-                :class="l.proj.metodo === 'linear' ? 'font-medium' : 'text-slate-500 dark:text-slate-400'"
-              >
-                {{ fmtDate(iso(l.proj.esgotamentoLinear)) }}
-              </td>
-              <td
-                class="px-3 py-2 whitespace-nowrap"
-                :class="l.proj.metodo === 'mediana' ? 'font-medium' : 'text-slate-500 dark:text-slate-400'"
-              >
-                {{ fmtDate(iso(l.proj.esgotamentoMediana)) }}
+              <td class="px-3 py-2 whitespace-nowrap">
+                <span :class="l.proj.historicoInsuficiente ? 'text-slate-400 italic' : ''">
+                  {{ faixa(l.proj) }}
+                </span>
               </td>
               <td class="px-3 py-2 whitespace-nowrap font-medium">
                 {{ fmtDate(iso(l.proj.dataLimite)) }}
-                <div class="text-xs font-normal text-slate-400">
-                  <span v-if="l.proj.confianca !== 'alta'" :title="`${l.proj.n} mês(es) de histórico`"
-                    >confiança {{ l.proj.confianca === "media" ? "média" : "baixa" }}</span
-                  >
-                  <span v-if="l.proj.divergente" class="text-amber-600 dark:text-amber-400">
-                    · métodos divergem
-                  </span>
+                <div
+                  v-if="l.proj.confianca !== 'alta' && !l.proj.historicoInsuficiente"
+                  class="text-xs font-normal text-slate-400"
+                  :title="`${l.proj.n} mês(es) de histórico`"
+                >
+                  confiança {{ l.proj.confianca === "media" ? "média" : "baixa" }}
                 </div>
               </td>
               <td class="px-3 py-2 text-center">
@@ -430,13 +396,15 @@ onMounted(load);
         </button>
       </div>
 
-      <p class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700">
-        Duas projeções são calculadas e vale a que esgota primeiro: a
-        <strong>reta</strong> (regressão sobre os meses letivos, enxerga consumo em alta) e a
-        <strong>mediana</strong> (resistente a uma NF atípica). Meses de recesso — inferidos dos
-        meses sem consumo em todo o grupo — ficam de fora da média e são pulados na projeção.
-        <strong>Abrir até</strong> = data prevista de esgotamento menos {{ prazoDias }} dias.
-        Projeção é estimativa: confira o item antes de instruir o processo.
+      <p
+        class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700"
+      >
+        O saldo é somado entre todos os empenhos ativos do item. A faixa vem de duas
+        projeções — regressão sobre os meses observados e mediana — e
+        <strong>Abrir até</strong> usa a ponta mais próxima, menos {{ prazoDias }} dias.
+        A projeção não modela férias nem greve; itens com poucos meses de histórico aparecem
+        como “histórico curto”, sem data. É estimativa: confira o item antes de instruir o
+        processo.
       </p>
     </template>
   </div>

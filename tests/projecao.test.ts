@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   indiceParaMes,
-  inferirMesesLetivos,
   mesParaIndice,
   projetar,
   situacao,
+  type ResultadoProjecao,
   type SerieMes,
 } from "../src/lib/projecao";
 
@@ -15,257 +15,194 @@ function serie(inicio: string, quantidades: number[]): SerieMes[] {
 }
 
 const dia = (d: Date) => d.toISOString().slice(0, 10);
+const hoje = new Date(Date.UTC(2026, 9, 20)); // 20/10/2026
 
 describe("calendario", () => {
   it("converte mes e indice nos dois sentidos", () => {
     expect(indiceParaMes(mesParaIndice("2026-03"))).toBe("2026-03");
-    expect(mesParaIndice("2026-01") + 1).toBe(mesParaIndice("2026-02"));
     expect(indiceParaMes(mesParaIndice("2025-12") + 1)).toBe("2026-01");
   });
 });
 
-describe("inferirMesesLetivos", () => {
-  it("marca como recesso o mes que ficou zerado em todas as ocorrencias", () => {
-    // marco/2025 a junho/2026, sem nenhum consumo em julho e em janeiro
-    const meses: string[] = [];
-    for (let i = mesParaIndice("2025-03"); i <= mesParaIndice("2026-06"); i++) {
-      const m = (i % 12) + 1;
-      if (m === 7 || m === 1) continue;
-      meses.push(indiceParaMes(i));
-    }
-    const letivos = inferirMesesLetivos(meses);
-    expect(letivos.has(7)).toBe(false);
-    expect(letivos.has(1)).toBe(false);
-    expect(letivos.has(3)).toBe(true);
-    expect(letivos.has(8)).toBe(true);
-  });
-
-  it("nao marca recesso quando o mes teve consumo em pelo menos um ano", () => {
-    const meses = ["2025-07", "2025-08", "2026-07"];
-    expect(inferirMesesLetivos(meses).has(7)).toBe(true);
-  });
-
-  it("trata mes nunca observado como letivo (hipotese conservadora)", () => {
-    // so dois meses de historico: nada se sabe sobre os demais
-    const letivos = inferirMesesLetivos(["2026-03", "2026-04"]);
-    expect(letivos.size).toBe(12);
-  });
-
-  it("sem historico nenhum, assume o ano inteiro letivo", () => {
-    expect(inferirMesesLetivos([]).size).toBe(12);
-  });
-});
-
 describe("projetar", () => {
-  const hoje = new Date(Date.UTC(2026, 9, 20)); // 20/10/2026
-  // grupo ativo de marco/2026 a outubro/2026, sem julho (recesso)
-  const mesesGrupo = [
-    "2026-03",
-    "2026-04",
-    "2026-05",
-    "2026-06",
-    "2026-08",
-    "2026-09",
-    "2026-10",
-  ];
-
   it("com consumo estavel, projeta esgotamento proporcional ao saldo", () => {
     const r = projetar({
       saldo: 300,
-      serie: serie("2026-03", [100, 100, 100, 100, 0, 100, 100, 100]).filter(
-        (s) => s.mes !== "2026-07"
-      ),
-      mesesAtivosDoGrupo: mesesGrupo,
+      serie: serie("2026-03", [100, 100, 100, 100, 100, 100, 100, 100]),
       prazoDias: 45,
       hoje,
     });
     expect(r.medianaMensal).toBe(100);
     expect(r.tendencia).toBe("estavel");
-    // 300 de saldo a 100/mes: acaba no terceiro mes letivo apos outubro
-    expect(dia(r.esgotamento!)).toBe("2027-01-31");
-    expect(r.confianca).toBe("alta");
+    // 300 de saldo a 100/mes, a partir de novembro
+    expect(dia(r.esgotamentoCedo!)).toBe("2027-01-31");
+    // sem sazonalidade: a faixa nao pula meses
+    expect(dia(r.esgotamentoTarde!)).toBe("2027-01-31");
   });
 
-  it("pula o recesso ao caminhar pelo calendario", () => {
-    // recesso em julho E em janeiro
-    const grupoComDoisRecessos = [
-      "2025-08",
-      "2025-09",
-      "2025-10",
-      "2025-11",
-      "2025-12",
-      "2026-02",
-      "2026-03",
-      "2026-04",
-      "2026-05",
-      "2026-06",
-      "2026-08",
-      "2026-09",
-      "2026-10",
-    ];
-    const s = grupoComDoisRecessos.map((mes) => ({ mes, quantidade: 100 }));
-    const r = projetar({
-      saldo: 300,
-      serie: s,
-      mesesAtivosDoGrupo: grupoComDoisRecessos,
-      prazoDias: 45,
-      hoje,
-    });
-    // nov, dez e — pulando janeiro — fevereiro
-    expect(dia(r.esgotamento!)).toBe("2027-02-28");
-  });
-
-  it("detecta consumo em alta e projeta esgotamento mais cedo que a mediana", () => {
+  it("detecta consumo em alta e antecipa o esgotamento", () => {
     const r = projetar({
       saldo: 400,
-      serie: serie("2026-03", [40, 60, 80, 100, 0, 120, 140, 160]).filter(
-        (s) => s.mes !== "2026-07"
-      ),
-      mesesAtivosDoGrupo: mesesGrupo,
+      serie: serie("2026-03", [40, 60, 80, 100, 120, 140, 160, 180]),
       prazoDias: 45,
       hoje,
     });
     expect(r.tendencia).toBe("alta");
     expect(r.inclinacao).toBeGreaterThan(0);
+    // a reta esgota antes da mediana e define a ponta curta da faixa
     expect(r.esgotamentoLinear!.getTime()).toBeLessThan(r.esgotamentoMediana!.getTime());
-    // o alerta usa a projecao mais conservadora
-    expect(r.metodo).toBe("linear");
-    expect(r.esgotamento).toEqual(r.esgotamentoLinear);
+    expect(r.esgotamentoCedo).toEqual(r.esgotamentoLinear);
+    expect(r.esgotamentoTarde).toEqual(r.esgotamentoMediana);
   });
 
-  it("usa a mediana quando ela esgota antes da reta", () => {
-    // consumo em queda: a reta estica o prazo, a mediana e mais conservadora
+  it("com consumo em queda, a mediana e a ponta conservadora", () => {
     const r = projetar({
       saldo: 300,
-      serie: serie("2026-03", [200, 180, 160, 140, 0, 120, 100, 80]).filter(
-        (s) => s.mes !== "2026-07"
-      ),
-      mesesAtivosDoGrupo: mesesGrupo,
+      serie: serie("2026-03", [200, 180, 160, 140, 120, 100, 80, 60]),
       prazoDias: 45,
       hoje,
     });
     expect(r.tendencia).toBe("queda");
-    expect(r.metodo).toBe("mediana");
-    expect(r.esgotamento).toEqual(r.esgotamentoMediana);
+    expect(r.esgotamentoCedo).toEqual(r.esgotamentoMediana);
   });
 
-  it("recua o prazo de tramitacao para achar a data-limite", () => {
+  it("recua o prazo de tramitacao a partir da ponta mais proxima", () => {
     const r = projetar({
       saldo: 300,
-      serie: serie("2026-03", [100, 100, 100, 100, 0, 100, 100, 100]).filter(
-        (s) => s.mes !== "2026-07"
-      ),
-      mesesAtivosDoGrupo: mesesGrupo,
+      serie: serie("2026-03", [100, 100, 100, 100, 100, 100, 100, 100]),
       prazoDias: 45,
       hoje,
     });
-    const diff =
-      (r.esgotamento!.getTime() - r.dataLimite!.getTime()) / 86_400_000;
+    const diff = (r.esgotamentoCedo!.getTime() - r.dataLimite!.getTime()) / 86_400_000;
     expect(diff).toBe(45);
   });
 
-  it("nao projeta sem consumo nenhum", () => {
-    const r = projetar({
-      saldo: 500,
-      serie: [],
-      mesesAtivosDoGrupo: mesesGrupo,
-      prazoDias: 45,
-      hoje,
-    });
-    expect(r.esgotamento).toBeNull();
-    expect(r.dataLimite).toBeNull();
-    expect(r.confianca).toBe("baixa");
-  });
-
-  it("marca confianca baixa com poucas observacoes", () => {
-    const r = projetar({
-      saldo: 100,
-      serie: serie("2026-09", [50, 50]),
-      mesesAtivosDoGrupo: ["2026-09", "2026-10"],
-      prazoDias: 45,
-      hoje,
-    });
-    expect(r.n).toBe(2);
-    expect(r.confianca).toBe("baixa");
-  });
-
-  it("saldo zerado aparece como esgotado, sem projecao", () => {
-    const r = projetar({
-      saldo: 0,
-      serie: serie("2026-03", [100, 100, 100]),
-      mesesAtivosDoGrupo: mesesGrupo,
-      prazoDias: 45,
-      hoje,
-    });
-    expect(r.esgotamento).toEqual(hoje);
-    expect(situacao(r, 0, hoje)).toBe("esgotado");
-  });
-
-  it("saldo folgado nao gera alerta", () => {
-    const r = projetar({
-      saldo: 100_000,
-      serie: serie("2026-03", [100, 100, 100, 100, 0, 100, 100, 100]).filter(
-        (s) => s.mes !== "2026-07"
-      ),
-      mesesAtivosDoGrupo: mesesGrupo,
-      prazoDias: 45,
-      hoje,
-    });
-    // alem do horizonte de projecao
-    expect(r.esgotamento).toBeNull();
-    expect(situacao(r, 100_000, hoje)).toBe("ok");
-  });
-
-  it("conta os meses letivos zerados, mas ignora os de recesso", () => {
-    // o item ficou sem compra em maio (mes letivo): esse zero conta
+  it("conta como zero o mes sem compra no meio da serie", () => {
     const r = projetar({
       saldo: 300,
       serie: [
         { mes: "2026-03", quantidade: 120 },
         { mes: "2026-04", quantidade: 120 },
+        // maio sem compra
         { mes: "2026-06", quantidade: 120 },
-        { mes: "2026-08", quantidade: 120 },
-        { mes: "2026-09", quantidade: 120 },
-        { mes: "2026-10", quantidade: 120 },
       ],
-      mesesAtivosDoGrupo: mesesGrupo,
       prazoDias: 45,
       hoje,
     });
-    // 7 meses letivos observados (marco a outubro sem julho), um deles zerado
-    expect(r.n).toBe(7);
-    expect(r.mediaMensal).toBeCloseTo((120 * 6) / 7, 5);
+    expect(r.n).toBe(4);
+    expect(r.mediaMensal).toBeCloseTo((120 * 3) / 4, 5);
+  });
+
+  it("nao projeta data com historico curto demais", () => {
+    const r = projetar({
+      saldo: 100,
+      serie: serie("2026-09", [50, 50]),
+      prazoDias: 45,
+      hoje,
+    });
+    expect(r.n).toBe(2);
+    expect(r.historicoInsuficiente).toBe(true);
+    expect(r.esgotamentoCedo).toBeNull();
+    expect(r.dataLimite).toBeNull();
+    // mas ainda informa o ritmo observado
+    expect(r.medianaMensal).toBe(50);
+    expect(situacao(r, 100, hoje)).toBe("ok");
+  });
+
+  it("nao projeta sem consumo nenhum", () => {
+    const r = projetar({ saldo: 500, serie: [], prazoDias: 45, hoje });
+    expect(r.esgotamentoCedo).toBeNull();
+    expect(r.confianca).toBe("baixa");
+  });
+
+  it("saldo zerado aparece como esgotado", () => {
+    const r = projetar({
+      saldo: 0,
+      serie: serie("2026-03", [100, 100, 100]),
+      prazoDias: 45,
+      hoje,
+    });
+    expect(r.esgotamentoCedo).toEqual(hoje);
+    expect(situacao(r, 0, hoje)).toBe("esgotado");
+  });
+
+  it("saldo folgado nao gera alerta", () => {
+    const r = projetar({
+      saldo: 1_000_000,
+      serie: serie("2026-03", [100, 100, 100, 100, 100, 100, 100, 100]),
+      prazoDias: 45,
+      hoje,
+    });
+    expect(r.esgotamentoCedo).toBeNull();
+    expect(situacao(r, 1_000_000, hoje)).toBe("ok");
+  });
+
+  it("gradua a confianca pelo tamanho do historico", () => {
+    const curto = projetar({
+      saldo: 100,
+      serie: serie("2026-05", [10, 10, 10, 10]),
+      prazoDias: 45,
+      hoje,
+    });
+    const longo = projetar({
+      saldo: 100,
+      serie: serie("2025-09", Array(14).fill(10)),
+      prazoDias: 45,
+      hoje,
+    });
+    expect(curto.confianca).toBe("baixa");
+    expect(longo.confianca).toBe("alta");
+  });
+
+  it("nao projeta para o passado quando os dados estao atrasados", () => {
+    // ultima NF lancada em marco, mas hoje e outubro
+    const r = projetar({
+      saldo: 300,
+      serie: serie("2025-10", [100, 100, 100, 100, 100, 100]),
+      prazoDias: 45,
+      hoje,
+    });
+    expect(r.esgotamentoCedo!.getTime()).toBeGreaterThanOrEqual(
+      Date.UTC(2026, 9, 1)
+    );
   });
 });
 
 describe("situacao", () => {
-  const hoje = new Date(Date.UTC(2026, 9, 20));
-  const base = {
-    n: 8,
+  const base: ResultadoProjecao = {
+    n: 12,
     mediaMensal: 100,
     medianaMensal: 100,
     inclinacao: 0,
-    tendencia: "estavel" as const,
+    tendencia: "estavel",
     esgotamentoLinear: null,
     esgotamentoMediana: null,
-    esgotamento: null,
-    metodo: null,
-    confianca: "alta" as const,
-    divergente: false,
+    esgotamentoCedo: null,
+    esgotamentoTarde: null,
+    dataLimite: null,
+    confianca: "alta",
+    historicoInsuficiente: false,
   };
 
   it("data-limite ja vencida é atraso", () => {
-    const r = { ...base, dataLimite: new Date(Date.UTC(2026, 9, 1)) };
-    expect(situacao(r, 500, hoje)).toBe("atrasado");
+    expect(
+      situacao({ ...base, dataLimite: new Date(Date.UTC(2026, 9, 1)) }, 500, hoje)
+    ).toBe("atrasado");
   });
 
   it("data-limite dentro da janela manda abrir o processo", () => {
-    const r = { ...base, dataLimite: new Date(Date.UTC(2026, 10, 5)) };
-    expect(situacao(r, 500, hoje)).toBe("abrir");
+    expect(
+      situacao({ ...base, dataLimite: new Date(Date.UTC(2026, 10, 5)) }, 500, hoje)
+    ).toBe("abrir");
   });
 
   it("data-limite distante fica em monitoramento", () => {
-    const r = { ...base, dataLimite: new Date(Date.UTC(2026, 11, 20)) };
-    expect(situacao(r, 500, hoje)).toBe("monitorar");
+    expect(
+      situacao({ ...base, dataLimite: new Date(Date.UTC(2026, 11, 20)) }, 500, hoje)
+    ).toBe("monitorar");
+  });
+
+  it("sem data projetada nao alerta", () => {
+    expect(situacao(base, 500, hoje)).toBe("ok");
   });
 });

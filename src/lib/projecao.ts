@@ -1,21 +1,18 @@
 // Projecao de consumo para antecipar reforco de empenho.
 //
-// Por que nao basta "saldo / media":
-//   1) O consumo escolar para em julho e entre dezembro e janeiro. Se os meses
-//      de recesso entram na media, o ritmo cai, a cobertura parece maior do que
-//      e, e o alerta de reforco chega TARDE - o erro perigoso.
-//   2) Uma media simples nao enxerga consumo em alta: um item que cresce mes a
-//      mes esgota antes do que a media sugere.
+// A unidade de analise e o ITEM, nao o par item+empenho: um item pode estar
+// zerado numa NE e ter saldo em outra, e quem compra olha o estoque do item.
+// Por isso o saldo entra somado entre os empenhos ativos, e a serie de consumo
+// tambem.
 //
-// Aqui o recesso e inferido dos proprios dados (meses em que NENHUM item do
-// grupo consumiu) e a projecao caminha pelo calendario futuro PULANDO esses
-// meses. Duas projecoes sao calculadas - regressao linear e mediana - e o
-// alerta usa a mais conservadora, isto e, a que esgota primeiro.
-//
-// Limite conhecido da inferencia: um mes sem NF por atraso de faturamento (e
-// nao por recesso) e lido como recesso. Com mais de um ano de historico o
-// efeito se dilui, porque so vira recesso o mes que ficou zerado em TODAS as
-// ocorrencias observadas.
+// Sobre sazonalidade: a primeira versao tentava inferir o recesso escolar dos
+// meses sem consumo. Os dados de producao refutaram a ideia - as lacunas da
+// serie acompanham o ritmo de FATURAMENTO, nao o de consumo, e a inferencia
+// chegou a marcar fevereiro e marco como ferias. Alem disso o calendario do
+// CPII sofre distorcao por greve. A projecao aqui portanto NAO modela
+// sazonalidade: caminha por meses corridos e, em vez de cravar uma data,
+// devolve uma FAIXA entre as duas projecoes (reta e mediana). O alerta usa a
+// ponta mais proxima, que e a hipotese conservadora.
 
 export interface SerieMes {
   /** Mes no formato YYYY-MM. */
@@ -27,20 +24,20 @@ export type Confianca = "alta" | "media" | "baixa";
 export type Tendencia = "alta" | "queda" | "estavel";
 
 export interface ParametrosProjecao {
-  /** Saldo atual do item naquele empenho, em quantidade. */
+  /** Saldo do item somado entre os empenhos ativos. */
   saldo: number;
-  /** Consumo mensal observado do item (so os meses com consumo). */
+  /** Consumo mensal do item (todos os empenhos juntos). */
   serie: SerieMes[];
-  /** Meses (YYYY-MM) em que o GRUPO consumiu algo: define o calendario letivo. */
-  mesesAtivosDoGrupo: string[];
   /** Prazo de tramitacao do reforco, em dias corridos. */
   prazoDias: number;
   /** Data de referencia (normalmente hoje). */
   hoje: Date;
+  /** Minimo de meses observados para arriscar uma data. Padrao 3. */
+  minObservacoes?: number;
 }
 
 export interface ResultadoProjecao {
-  /** Meses letivos usados no calculo, desde o primeiro consumo do item. */
+  /** Meses observados, do primeiro consumo ao ultimo mes com dados. */
   n: number;
   mediaMensal: number;
   medianaMensal: number;
@@ -49,20 +46,19 @@ export interface ResultadoProjecao {
   tendencia: Tendencia;
   esgotamentoLinear: Date | null;
   esgotamentoMediana: Date | null;
-  /** A mais proxima das duas: e ela que manda no alerta. */
-  esgotamento: Date | null;
-  metodo: "linear" | "mediana" | null;
-  /** Esgotamento menos o prazo de tramitacao: quando abrir o processo. */
+  /** Ponta mais proxima da faixa: e ela que manda no alerta. */
+  esgotamentoCedo: Date | null;
+  /** Ponta mais distante da faixa. */
+  esgotamentoTarde: Date | null;
+  /** Esgotamento mais proximo menos o prazo de tramitacao. */
   dataLimite: Date | null;
   confianca: Confianca;
-  /** Os dois metodos divergem mais de 45 dias entre si. */
-  divergente: boolean;
+  /** Historico curto demais para projetar data (so ritmo e tendencia). */
+  historicoInsuficiente: boolean;
 }
 
-/** Horizonte maximo da projecao, em meses letivos. */
+/** Horizonte maximo da projecao, em meses. */
 const HORIZONTE_MESES = 60;
-/** Divergencia entre os metodos a partir da qual a projecao e sinalizada. */
-const DIAS_DIVERGENCIA = 45;
 
 // ---------------------------------------------------------------- calendario
 
@@ -87,41 +83,6 @@ function diasNoMes(indice: number): number {
   const a = Math.floor(indice / 12);
   const m = indice % 12;
   return new Date(Date.UTC(a, m + 1, 0)).getUTCDate();
-}
-
-/**
- * Descobre quais meses do ano (1..12) sao letivos, a partir dos meses em que o
- * grupo registrou consumo. Um mes do ano so e considerado recesso se, em TODAS
- * as vezes em que foi observado, ficou zerado. Mes nunca observado conta como
- * letivo - a hipotese conservadora, que antecipa o alerta em vez de atrasa-lo.
- */
-export function inferirMesesLetivos(mesesComConsumo: string[]): Set<number> {
-  const todos = new Set<number>([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-  if (!mesesComConsumo.length) return todos;
-
-  const ativos = new Set(mesesComConsumo.map(mesParaIndice));
-  const ini = Math.min(...ativos);
-  const fim = Math.max(...ativos);
-
-  const observado = new Map<number, number>();
-  const comConsumo = new Map<number, number>();
-  for (let i = ini; i <= fim; i++) {
-    const mesDoAno = (i % 12) + 1;
-    observado.set(mesDoAno, (observado.get(mesDoAno) ?? 0) + 1);
-    if (ativos.has(i)) comConsumo.set(mesDoAno, (comConsumo.get(mesDoAno) ?? 0) + 1);
-  }
-
-  const letivos = new Set<number>();
-  for (const mesDoAno of todos) {
-    const obs = observado.get(mesDoAno) ?? 0;
-    const ativo = comConsumo.get(mesDoAno) ?? 0;
-    if (obs === 0 || ativo > 0) letivos.add(mesDoAno);
-  }
-  return letivos;
-}
-
-function ehLetivo(indice: number, letivos: Set<number>): boolean {
-  return letivos.has((indice % 12) + 1);
 }
 
 // ------------------------------------------------------------------ medidas
@@ -152,42 +113,28 @@ function regressao(v: number[]): { inclinacao: number; intercepto: number } {
 // ----------------------------------------------------------------- projecao
 
 /**
- * Caminha pelos meses letivos futuros acumulando o consumo previsto por
- * `previsao(passo)` ate zerar o saldo. Devolve a data estimada, interpolando o
- * dia dentro do mes em que o saldo acaba, ou null se nao esgota no horizonte.
+ * Caminha pelos meses futuros acumulando o consumo previsto por
+ * `previsao(passo)` ate zerar o saldo. Interpola o dia dentro do mes em que o
+ * saldo acaba; devolve null se nao esgota dentro do horizonte.
  */
 function caminhar(
   saldo: number,
   inicio: number,
-  letivos: Set<number>,
   previsao: (passo: number) => number
 ): Date | null {
   let restante = saldo;
-  let passo = 0;
-  let indice = inicio;
-  let visitados = 0;
-
-  while (visitados < HORIZONTE_MESES) {
-    if (!ehLetivo(indice, letivos)) {
-      indice++;
-      continue;
-    }
+  for (let passo = 0; passo < HORIZONTE_MESES; passo++) {
     const consumo = Math.max(0, previsao(passo));
     // consumo projetado zerou: nesse ritmo o saldo nunca acaba
     if (consumo <= 0) return null;
 
     if (consumo >= restante) {
-      const fracao = restante / consumo;
+      const indice = inicio + passo;
       const dias = diasNoMes(indice);
-      const dia = Math.min(dias, Math.max(1, Math.ceil(fracao * dias)));
-      const ano = Math.floor(indice / 12);
-      const mes = indice % 12;
-      return new Date(Date.UTC(ano, mes, dia));
+      const dia = Math.min(dias, Math.max(1, Math.ceil((restante / consumo) * dias)));
+      return new Date(Date.UTC(Math.floor(indice / 12), indice % 12, dia));
     }
     restante -= consumo;
-    passo++;
-    visitados++;
-    indice++;
   }
   return null;
 }
@@ -198,16 +145,12 @@ function somaDias(d: Date, dias: number): Date {
   return r;
 }
 
-function difDias(a: Date, b: Date): number {
-  return Math.abs(a.getTime() - b.getTime()) / 86_400_000;
-}
-
 /**
  * Projeta o esgotamento do saldo de um item e a data-limite para abrir o
- * reforco. Devolve as duas projecoes e elege a mais conservadora.
+ * reforco. Devolve as duas projecoes (reta e mediana) como uma faixa.
  */
 export function projetar(p: ParametrosProjecao): ResultadoProjecao {
-  const letivos = inferirMesesLetivos(p.mesesAtivosDoGrupo);
+  const min = p.minObservacoes ?? 3;
 
   const vazio: ResultadoProjecao = {
     n: 0,
@@ -217,31 +160,26 @@ export function projetar(p: ParametrosProjecao): ResultadoProjecao {
     tendencia: "estavel",
     esgotamentoLinear: null,
     esgotamentoMediana: null,
-    esgotamento: null,
-    metodo: null,
+    esgotamentoCedo: null,
+    esgotamentoTarde: null,
     dataLimite: null,
     confianca: "baixa",
-    divergente: false,
+    historicoInsuficiente: true,
   };
 
   const comConsumo = p.serie.filter((s) => s.quantidade > 0);
   if (!comConsumo.length) return vazio;
 
-  // Serie densa: do primeiro consumo do item ate o ultimo mes com dados do
-  // grupo, so meses letivos. O zero de um mes letivo e informacao real (nao
-  // comprou naquele mes); o zero de um recesso nao e, e por isso fica de fora.
+  // Serie densa em meses corridos, do primeiro consumo ao ultimo mes com
+  // dados. Um mes sem compra no meio da serie conta como zero: e consumo
+  // baixo de verdade, e nao ha como distinguir de atraso de faturamento.
   const porMes = new Map(p.serie.map((s) => [mesParaIndice(s.mes), s.quantidade]));
-  const ini = Math.min(...comConsumo.map((s) => mesParaIndice(s.mes)));
-  const ultimoDadoGrupo = p.mesesAtivosDoGrupo.length
-    ? Math.max(...p.mesesAtivosDoGrupo.map(mesParaIndice))
-    : Math.max(...comConsumo.map((s) => mesParaIndice(s.mes)));
+  const indices = comConsumo.map((s) => mesParaIndice(s.mes));
+  const ini = Math.min(...indices);
+  const fim = Math.max(...indices);
 
   const valores: number[] = [];
-  for (let i = ini; i <= ultimoDadoGrupo; i++) {
-    if (!ehLetivo(i, letivos)) continue;
-    valores.push(porMes.get(i) ?? 0);
-  }
-  if (!valores.length) return vazio;
+  for (let i = ini; i <= fim; i++) valores.push(porMes.get(i) ?? 0);
 
   const n = valores.length;
   const mediaMensal = valores.reduce((a, b) => a + b, 0) / n;
@@ -255,7 +193,7 @@ export function projetar(p: ParametrosProjecao): ResultadoProjecao {
         : "queda"
       : "estavel";
 
-  const confianca: Confianca = n >= 6 ? "alta" : n >= 3 ? "media" : "baixa";
+  const confianca: Confianca = n >= 12 ? "alta" : n >= 6 ? "media" : "baixa";
 
   const base: ResultadoProjecao = {
     ...vazio,
@@ -265,50 +203,50 @@ export function projetar(p: ParametrosProjecao): ResultadoProjecao {
     inclinacao,
     tendencia,
     confianca,
+    historicoInsuficiente: n < min,
   };
 
-  // Saldo ja esgotado: nao ha o que projetar, o reforco e para ontem.
+  // Saldo ja esgotado em TODOS os empenhos: o reforco e para ontem.
   if (p.saldo <= 0) {
-    return { ...base, esgotamento: p.hoje, dataLimite: p.hoje, metodo: null };
+    return {
+      ...base,
+      esgotamentoCedo: p.hoje,
+      esgotamentoTarde: p.hoje,
+      dataLimite: p.hoje,
+    };
   }
+
+  // Historico curto demais: informa ritmo e tendencia, mas nao arrisca data.
+  if (n < min) return base;
 
   // Projeta a partir do mes seguinte ao ultimo com dados, nunca no passado.
-  const inicio = Math.max(ultimoDadoGrupo + 1, indiceDaData(p.hoje));
+  const inicio = Math.max(fim + 1, indiceDaData(p.hoje));
 
-  const esgotamentoLinear = caminhar(p.saldo, inicio, letivos, (t) =>
-    // t conta a partir do fim da serie observada
-    intercepto + inclinacao * (n + t)
+  const esgotamentoLinear = caminhar(
+    p.saldo,
+    inicio,
+    (t) => intercepto + inclinacao * (n + t)
   );
   const esgotamentoMediana =
-    medianaMensal > 0 ? caminhar(p.saldo, inicio, letivos, () => medianaMensal) : null;
+    medianaMensal > 0 ? caminhar(p.saldo, inicio, () => medianaMensal) : null;
 
-  let esgotamento: Date | null = null;
-  let metodo: "linear" | "mediana" | null = null;
-  if (esgotamentoLinear && esgotamentoMediana) {
-    const linearPrimeiro = esgotamentoLinear <= esgotamentoMediana;
-    esgotamento = linearPrimeiro ? esgotamentoLinear : esgotamentoMediana;
-    metodo = linearPrimeiro ? "linear" : "mediana";
-  } else if (esgotamentoLinear) {
-    esgotamento = esgotamentoLinear;
-    metodo = "linear";
-  } else if (esgotamentoMediana) {
-    esgotamento = esgotamentoMediana;
-    metodo = "mediana";
-  }
-
-  const divergente =
-    !!esgotamentoLinear &&
-    !!esgotamentoMediana &&
-    difDias(esgotamentoLinear, esgotamentoMediana) > DIAS_DIVERGENCIA;
+  const datas = [esgotamentoLinear, esgotamentoMediana].filter(
+    (d): d is Date => d != null
+  );
+  const esgotamentoCedo = datas.length
+    ? new Date(Math.min(...datas.map((d) => d.getTime())))
+    : null;
+  const esgotamentoTarde = datas.length
+    ? new Date(Math.max(...datas.map((d) => d.getTime())))
+    : null;
 
   return {
     ...base,
     esgotamentoLinear,
     esgotamentoMediana,
-    esgotamento,
-    metodo,
-    dataLimite: esgotamento ? somaDias(esgotamento, -p.prazoDias) : null,
-    divergente,
+    esgotamentoCedo,
+    esgotamentoTarde,
+    dataLimite: esgotamentoCedo ? somaDias(esgotamentoCedo, -p.prazoDias) : null,
   };
 }
 
