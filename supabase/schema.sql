@@ -2707,3 +2707,38 @@ drop policy if exists p_fornecedores_insert on public.fornecedores;
 create policy p_fornecedores_insert on public.fornecedores for insert to authenticated
   with check (public.current_papel() in ('sane','admin'));
 commit;
+
+
+-- =====================================================================
+-- 34. Projeção de reforço: série mensal de consumo + prazo de tramitação
+-- =====================================================================
+-- A projeção em si (tendência, recesso, data-limite) é calculada no
+-- frontend (src/lib/projecao.ts), que tem testes. Aqui só se prepara a
+-- série: uma linha por empenho+item+mês, em vez de uma por NF. Reduz
+-- bastante o volume trafegado no Dashboard, que carrega a série inteira.
+--
+-- O mês é o da ENTREGA da NF (mesma datacao de vw_empenho_item_consumo),
+-- para que consumo e saldo contem a mesma história.
+create or replace view public.vw_item_consumo_mensal
+with (security_invoker = on) as
+select
+  ni.empenho_id,
+  ni.item_id,
+  i.grupo_id,
+  to_char(nf.data_entrega, 'YYYY-MM')              as mes,
+  sum(ni.quantidade)::numeric(14,4)                as quantidade
+from public.nf_itens ni
+join public.notas_fiscais nf on nf.id = ni.nf_id and nf.deleted_at is null
+join public.empenhos e       on e.id = ni.empenho_id and e.deleted_at is null
+join public.itens i          on i.id = ni.item_id
+where ni.empenho_id is not null
+  and nf.data_entrega is not null
+group by ni.empenho_id, ni.item_id, i.grupo_id, to_char(nf.data_entrega, 'YYYY-MM');
+
+-- Prazo médio de tramitação do reforço, em dias corridos: a data-limite
+-- para abrir o processo é a data prevista de esgotamento menos este prazo.
+-- Editável pelo admin na aba Configurações.
+insert into public.configuracoes (chave, valor, descricao) values
+  ('reforco_prazo_dias', '45',
+   'Prazo médio, em dias corridos, para tramitar um reforço de empenho. Usado para calcular a data-limite de abertura do processo no painel de reforços.')
+on conflict (chave) do nothing;

@@ -47,3 +47,13 @@ export async function getLocalEmissao(): Promise<string> {
   const m = await carregarConfig();
   return pick(m, "local_emissao_padrao", "Rio de Janeiro");
 }
+
+/**
+ * Prazo medio de tramitacao de um reforco de empenho, em dias corridos.
+ * E o quanto o painel de reforcos se antecipa a data prevista de esgotamento.
+ */
+export async function getPrazoReforcoDias(): Promise<number> {
+  const m = await carregarConfig();
+  const n = Number(pick(m, "reforco_prazo_dias", "45"));
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 45;
+}

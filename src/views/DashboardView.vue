@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { api, USE_API } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 import { fmtMoney } from "@/lib/format";
+import PainelReforcos from "@/components/PainelReforcos.vue";
 import type { VwGrupoResumo } from "@/types/database";
 
 const auth = useAuthStore();
@@ -267,6 +268,16 @@ onMounted(() => {
     </template>
 
     <!-- ============ Inteligência de consumo ============ -->
+    <template v-if="auth.isSane">
+      <div class="mt-10 mb-4 flex items-baseline gap-2">
+        <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Reforços previstos</h2>
+        <span class="text-xs text-slate-500 dark:text-slate-400">
+          quando o saldo deve acabar e até quando abrir o processo
+        </span>
+      </div>
+      <PainelReforcos />
+    </template>
+
     <div class="mt-10 mb-4 flex items-baseline justify-between gap-2 flex-wrap">
       <div class="flex items-baseline gap-2">
         <h2 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Inteligência de consumo</h2>
