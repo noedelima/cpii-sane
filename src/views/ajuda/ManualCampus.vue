@@ -18,8 +18,10 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
         <li>Entrar no sistema (login)</li>
         <li>O menu e a tela inicial</li>
         <li>Cadastrar um recibo (passo a passo)</li>
+        <li>Faltas e devoluções: registrar ocorrências</li>
+        <li>Corrigir um recibo já salvo</li>
         <li>Acompanhar seus recibos</li>
-        <li>Anexar o PDF do recibo</li>
+        <li>Anexar PDFs ao recibo</li>
         <li>Trocar a senha</li>
         <li>Perguntas frequentes</li>
       </ol>
@@ -116,7 +118,8 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
       <li><strong>Grupo</strong> — o contrato/grupo dos itens entregues (ex.: “Grupo I — Hortifruti A”). Selecione-o
         primeiro: a lista de itens depende do grupo.</li>
       <li><strong>Item</strong> e <strong>Quantidade</strong> — escolha o item e digite a quantidade recebida; clique em
-        <strong>Adicionar</strong>. Repita para cada item da entrega.</li>
+        <strong>Adicionar</strong> (ou tecle <strong>Enter</strong> no campo da quantidade, que é mais rápido quando a
+        entrega tem muitos itens). Repita para cada item da entrega.</li>
       <li>Confira o <strong>valor total estimado</strong> (calculado pelo preço de referência do contrato) e clique em
         <strong>Salvar recibo</strong>.</li>
     </ol>
@@ -174,9 +177,53 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
       <strong>grupo correto</strong>.
     </div>
 
+    <div class="callout atencao">
+      <strong>Dias permitidos para a data do pedido.</strong> A instituição pode restringir em que dias da semana
+      a data do pedido pode cair — no Colégio Pedro II os pedidos são feitos para <strong>terça-feira</strong>, e o
+      pagamento é calculado por essa data, não pela da entrega efetiva. Se a data escolhida cair num dia
+      bloqueado, aparece um aviso em vermelho abaixo do campo e o recibo <em>não salva</em>. O texto logo abaixo
+      da data diz quais dias estão liberados.
+      <br /><br />
+      <strong>Entregou em outro dia?</strong> Mantenha a data do pedido e descreva a divergência nas
+      <strong>observações</strong>. Se o caso for mesmo de exceção (feriado que deslocou a entrega, por exemplo),
+      peça à SANE — só o perfil SANE/Administração consegue lançar fora dos dias permitidos.
+    </div>
+
     <hr />
 
-    <h2>5. Acompanhar seus recibos</h2>
+    <h2>5. Faltas e devoluções: registrar ocorrências</h2>
+    <p>
+      Quando um item <strong>não foi entregue</strong> ou foi <strong>devolvido</strong> por má qualidade, registre
+      na seção <strong>Ocorrências</strong> do próprio recibo. Escolha o item, o tipo da ocorrência, a quantidade e,
+      se quiser, uma observação (ex.: “fruta madura demais”).
+    </p>
+    <div class="callout dica">
+      A ocorrência <strong>não entra</strong> nas quantidades recebidas — ela é o registro do que faltou ou voltou.
+      Nos <strong>itens</strong> do recibo, lance apenas o que de fato ficou no campus.
+    </div>
+    <p>
+      Esses registros se acumulam na aba <strong>Notificações</strong> da SANE, consolidados por fornecedor e por
+      item. São eles que instruem a notificação à empresa e, se for o caso, o relatório de penalidade. Por isso
+      vale registrar sempre, mesmo a falta pequena: o padrão só aparece quando há histórico.
+    </p>
+
+    <hr />
+
+    <h2>6. Corrigir um recibo já salvo</h2>
+    <p>
+      Você pode <strong>abrir e corrigir</strong> um recibo do seu campus — número, data, observações, itens,
+      quantidades, ocorrências e anexos — enquanto ele ainda estiver <strong>pendente</strong> e sem nota fiscal
+      vinculada. Basta abrir o recibo na lista, ajustar e clicar em <strong>Salvar</strong>.
+    </p>
+    <p>
+      Depois que a SANE vincula o recibo a uma NF ou muda o status (confirmado, pago…), ele <strong>trava</strong>:
+      os campos ficam somente leitura e aparece um aviso explicando. A partir daí, qualquer correção passa pela
+      SANE — o que é proposital, porque o recibo já está sustentando um pagamento.
+    </p>
+
+    <hr />
+
+    <h2>7. Acompanhar seus recibos</h2>
     <p>
       A lista de <strong>Recibos</strong> mostra todos os registros, com busca por número e filtros por campus, grupo e
       status. A coluna <strong>Autor</strong> indica quem cadastrou (passe o mouse para ver a data/hora). Clique no
@@ -209,16 +256,25 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 
     <hr />
 
-    <h2>6. Anexar o PDF do recibo</h2>
+    <h2>8. Anexar PDFs ao recibo</h2>
     <p>
       Ao abrir um recibo, use <strong>“Anexar PDF”</strong> para subir a imagem/PDF do documento físico (até 10 MB).
       Depois de anexado, aparece o link <strong>“Ver PDF”</strong>. Isso ajuda a SANE na conferência e mantém o
       comprovante junto ao registro.
     </p>
+    <p>
+      Se um recibo tiver <strong>mais de um documento</strong> (várias folhas digitalizadas em arquivos separados,
+      um comprovante de devolução, uma foto), use a seção <strong>Anexos adicionais</strong>, logo abaixo: dê uma
+      descrição, anexe o arquivo e repita quantas vezes precisar. Não há limite de quantidade.
+    </p>
+    <div class="callout dica">
+      Quando a SANE gera o PDF unificado dos recibos de uma nota fiscal, os anexos adicionais entram junto —
+      então vale anexá-los aqui em vez de enviar por e-mail à parte.
+    </div>
 
     <hr />
 
-    <h2>7. Trocar a senha</h2>
+    <h2>9. Trocar a senha</h2>
     <ol class="passos">
       <li>Clique no <strong>seu nome</strong>, no canto superior direito.</li>
       <li>Escolha <strong>“Trocar senha”</strong>.</li>
@@ -230,9 +286,11 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 
     <hr />
 
-    <h2>8. Perguntas frequentes</h2>
+    <h2>10. Perguntas frequentes</h2>
     <p><strong>Não vejo o botão “+ Novo recibo”.</strong> Seu perfil pode não estar como Campus, ou sem campus vinculado. Peça à Administração para ajustar.</p>
-    <p><strong>Errei a quantidade depois de salvar.</strong> Abra o recibo e ajuste; itens já gravados só a SANE remove. Em caso de dúvida, registre nas observações.</p>
+    <p><strong>Errei a quantidade depois de salvar.</strong> Abra o recibo e ajuste normalmente — enquanto ele estiver pendente e sem NF vinculada, você mesmo corrige itens e quantidades (seção 6). Se ele já estiver travado, fale com a SANE.</p>
+    <p><strong>O sistema recusou a data do recibo.</strong> A data do pedido caiu num dia da semana que a instituição não aceita — o aviso abaixo do campo diz quais dias estão liberados. Se a entrega realmente ocorreu em outro dia, mantenha a data do pedido e explique nas observações; se for exceção de verdade, peça à SANE para lançar.</p>
+    <p><strong>Faltou um item na entrega. Lanço com quantidade zero?</strong> Não. Lance nos <strong>itens</strong> só o que chegou e registre a falta em <strong>Ocorrências</strong> (seção 5) — é assim que a SANE consegue notificar a empresa.</p>
     <p><strong>O item não aparece na lista.</strong> Verifique o grupo selecionado — a lista de itens é a daquele contrato. Se o item realmente não existir, avise a SANE.</p>
     <p><strong>Posso cadastrar recibo de outro campus?</strong> Em geral não — você lança para o(s) seu(s) campus. A Administração pode vincular mais de um campus ao seu perfil, se for o caso.</p>
   </div>

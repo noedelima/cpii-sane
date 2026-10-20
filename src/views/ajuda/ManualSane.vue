@@ -6,9 +6,10 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
   <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-8 ajuda-doc">
     <p class="intro">
       Manual completo para a equipe da <strong>SANE</strong> (perfis SANE e Administração). Cobre os cadastros e
-      todo o fluxo financeiro: grupos/itens, empenhos, notas fiscais, solicitação de NF, ateste e a administração
-      do sistema. As telas são reproduções fiéis (dados de exemplo) com <span class="marca-inline">marcadores
-      numerados</span> didáticos.
+      todo o fluxo financeiro — grupos/itens, empenhos, notas fiscais, solicitação de NF e ateste —, as telas de
+      acompanhamento (atas, consumo, reforços previstos e notificações) e a administração do sistema. As telas
+      são reproduções fiéis (dados de exemplo) com <span class="marca-inline">marcadores numerados</span>
+      didáticos.
     </p>
 
     <nav class="sumario">
@@ -23,6 +24,10 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
         <li>NF: recibos vinculados e instrumento de cobrança</li>
         <li>Solicitar emissão de NF</li>
         <li>Ateste de recebimento</li>
+        <li>Atas: execução do contrato por item</li>
+        <li>Consumo por empenho e estimativa de reforço</li>
+        <li>Reforços previstos: o painel do Dashboard</li>
+        <li>Notificações: faltas e devoluções dos campi</li>
         <li>Administração: usuários, log e configurações</li>
         <li>Perguntas frequentes e glossário</li>
       </ol>
@@ -267,13 +272,141 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 
     <hr />
 
-    <h2>10. Administração: usuários, log e configurações</h2>
+    <h2>10. Atas: execução do contrato por item</h2>
+    <p>
+      A aba <strong>Atas</strong> responde à pergunta do planejamento: <em>quanto da ata já foi usado?</em> Escolha a
+      ata e veja, de um lado, os <strong>empenhos</strong> emitidos sobre ela (com reforços, utilizado e saldo) e, de
+      outro, a <strong>execução item a item</strong>.
+    </p>
+    <ul class="lista">
+      <li><strong>Empenhado</strong> — quantidades dos itens nas NEs ativas dos grupos da ata (inclui reforços).</li>
+      <li><strong>Consumido</strong> — o maior entre o recebido nos recibos e o faturado nas NFs.</li>
+      <li><strong>Saldo da ata</strong> — quantidade registrada na ata menos o consumido.</li>
+      <li><strong>A empenhar</strong> — quantidade da ata menos o empenhado: o que ainda pode virar NE ou reforço.</li>
+    </ul>
+    <p>
+      Dois alertas aparecem no topo: itens com <strong>85% ou mais</strong> da ata consumidos e itens da ata ainda
+      <strong>sem nenhum empenho</strong>. O botão <strong>Exportar CSV</strong> leva a tabela para a planilha.
+    </p>
+    <div class="callout atencao">
+      <strong>A empenhar</strong> e <strong>saldo da ata</strong> respondem a perguntas diferentes. Um item pode ter
+      saldo de ata e <em>não</em> ter saldo empenhado — nesse caso a solução é reforçar a NE, não licitar de novo.
+    </div>
+
+    <hr />
+
+    <h2>11. Consumo por empenho e estimativa de reforço</h2>
+    <p>
+      A aba <strong>Consumo</strong> mostra, por item e por empenho, quanto foi consumido ao longo do tempo — em
+      semanas ou meses — datado pela <strong>entrega da NF</strong>. Serve para enxergar o ritmo e decidir reforços
+      com antecedência.
+    </p>
+    <ul class="lista">
+      <li><strong>Ritmo</strong> — média por período desde o primeiro consumo da janela.</li>
+      <li><strong>Cobertura</strong> — saldo ÷ ritmo, ou seja, por quantos períodos o saldo ainda dá.</li>
+      <li><strong>Situação</strong> — OK, Atenção, Reforço ou Esgotado, conforme os limites configurados na tela.</li>
+    </ul>
+    <p>
+      É possível agrupar <strong>por item</strong> (somando os empenhos) ou ver empenho a empenho, filtrar por grupo e
+      exportar. Para a decisão de abrir reforço, prefira o painel da próxima seção, que já traz a data-limite.
+    </p>
+
+    <hr />
+
+    <h2>12. Reforços previstos: o painel do Dashboard</h2>
+    <p>
+      No <strong>Dashboard</strong>, o painel <strong>Reforços previstos</strong> responde à pergunta prática:
+      <em>até quando preciso abrir o processo de reforço?</em> Ele lista apenas os itens que exigem alguma ação —
+      quem está folgado fica de fora.
+    </p>
+    <div class="tabela-wrap">
+      <table>
+        <thead><tr><th>Coluna</th><th>O que significa</th></tr></thead>
+        <tbody>
+          <tr><td>Saldo total</td><td>Soma do saldo do item em <strong>todos os empenhos ativos</strong> — não por NE isolada.</td></tr>
+          <tr><td>Consumo/mês</td><td>Mediana mensal observada, com seta de tendência (↑ em alta, ↓ em queda, → estável).</td></tr>
+          <tr><td>Esgota entre</td><td>Faixa entre duas projeções: regressão e mediana.</td></tr>
+          <tr><td>Abrir até</td><td>Data prevista de esgotamento menos o prazo de tramitação configurado.</td></tr>
+          <tr><td>Situação</td><td>Esgotado, Prazo vencido, Abrir reforço ou Monitorar.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>Como a projeção é feita</strong> — e o que ela não faz:</p>
+    <ul class="lista">
+      <li>O <strong>ritmo</strong> vem dos <strong>recibos</strong> (recebimento nos campi), não das notas fiscais. A NF é evento de faturamento, sai em blocos e deixaria buracos que não correspondem a consumo.</li>
+      <li>O <strong>saldo</strong> vem dos empenhos, que é a autoridade contábil. Cada número vem da sua melhor fonte.</li>
+      <li>Duas projeções são calculadas e vale a que <strong>esgota primeiro</strong>: a regressão (enxerga consumo em alta) e a mediana (resistente a uma NF atípica).</li>
+      <li>A projeção <strong>não modela férias nem greve</strong>. Em período de recesso prolongado, as datas tendem a ficar pessimistas — o saldo dura mais do que o painel sugere.</li>
+    </ul>
+    <p>Quando o painel <strong>não arrisca</strong> uma data, ele diz por quê:</p>
+    <ul class="lista">
+      <li><strong>“histórico curto”</strong> — menos de três meses observados; mostra o ritmo, mas não a data.</li>
+      <li><strong>“consumo irregular”</strong> — o item ficou sem compra na maioria dos meses; projetar seria inventar precisão.</li>
+      <li><strong>“projeções discordam”</strong> — regressão e mediana diferem por mais de seis meses; a tela mostra só a ponta curta (“a partir de…”).</li>
+      <li><strong>“confiança média/baixa”</strong> — histórico ainda curto; passe o mouse para ver quantos meses sustentam a conta.</li>
+    </ul>
+    <div class="callout atencao">
+      <strong>É estimativa, não oráculo.</strong> O painel diz onde olhar e em que ordem — confira o item no
+      <strong>Consumo</strong> e nas <strong>Atas</strong> antes de instruir o processo. Muitos “Prazo vencido” de uma
+      vez costumam significar que o <em>prazo de tramitação configurado</em> não condiz com a realidade: ajuste-o em
+      Administração → Configurações.
+    </div>
+
+    <hr />
+
+    <h2>13. Notificações: faltas e devoluções dos campi</h2>
+    <p>
+      Quando um item não é entregue ou volta por má qualidade, o campus registra uma <strong>ocorrência</strong> no
+      próprio recibo. A aba <strong>Notificações</strong> reúne todas elas, consolidadas <strong>por fornecedor</strong>
+      ou <strong>por item</strong>, com o valor estimado pelo preço vigente na data do recibo.
+    </p>
+    <p>
+      As ocorrências <strong>não entram</strong> nas quantidades recebidas nem no consumo — são o registro da falha.
+      Para cada uma, a SANE mantém o <strong>acompanhamento</strong>: situação (registrada → notificada → respondida
+      → arquivada), data da notificação e referência (processo SUAP ou e-mail). O <strong>Exportar CSV</strong> gera a
+      base para instruir relatório de penalidade ou pedido de rescisão.
+    </p>
+    <div class="callout dica">
+      O cartão <strong>“Ainda sem notificar”</strong> no topo é a fila de trabalho: são as ocorrências que os campi
+      registraram e que ninguém levou à empresa ainda.
+    </div>
+
+    <hr />
+
+    <h2>14. Administração: usuários, log e configurações</h2>
     <p>O menu <strong>Administração</strong> (perfil admin) reúne três abas:</p>
     <ul class="lista">
-      <li><strong>Usuários</strong> — crie servidores com senha inicial, defina o <strong>papel</strong> (campus/SANE/admin), a matrícula SIAPE e vincule <strong>um ou mais campi</strong> (botão “Campi”). Use “Definir senha” para redefinir acessos.</li>
+      <li><strong>Usuários</strong> — crie servidores com senha inicial, defina o <strong>papel</strong> (campus/SANE/admin), a matrícula SIAPE e vincule <strong>um ou mais campi</strong> (botão “Campi”). Use “Definir senha” para redefinir acessos e <strong>“Excluir”</strong> para remover um usuário que deixou a instituição. O sistema <em>impede</em> excluir ou rebaixar o último administrador, para não deixar o sistema sem dono.</li>
       <li><strong>Log de auditoria</strong> — registro detalhado de inclusões, edições e exclusões, com autor, data/hora e os campos alterados (antes → depois). Filtre por entidade, ação, período e busca.</li>
-      <li><strong>Configurações</strong> — parâmetros globais usados nos PDFs (local de emissão padrão e textos do cabeçalho).</li>
+      <li><strong>Configurações</strong> — parâmetros globais, detalhados a seguir.</li>
     </ul>
+    <p>As <strong>configurações</strong> disponíveis:</p>
+    <div class="tabela-wrap">
+      <table>
+        <thead><tr><th>Parâmetro</th><th>Para que serve</th></tr></thead>
+        <tbody>
+          <tr><td>Cabeçalho dos PDFs (3 linhas)</td><td>Órgão e setores impressos no topo de ateste, solicitação de NF, saldos e lançamento.</td></tr>
+          <tr><td>Local de emissão padrão</td><td>Cidade que aparece na assinatura dos documentos.</td></tr>
+          <tr><td>Dias da semana do recibo</td><td>Em que dias a <strong>data do pedido</strong> pode cair. Ver abaixo.</td></tr>
+          <tr><td>Prazo de tramitação do reforço</td><td>Dias corridos que o processo leva. É o quanto o painel de reforços se antecipa ao esgotamento.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <strong>Dias da semana do recibo.</strong> No CPII o pagamento é calculado pela <strong>data do pedido</strong>,
+      não pela da entrega efetiva, e os pedidos saem todos para terça-feira — campi que lançam outra data deslocam
+      o pagamento. Marque nas caixas apenas os dias aceitos. Com a restrição ativa:
+    </p>
+    <ul class="lista">
+      <li>Os <strong>campi</strong> não conseguem salvar recibo com data fora dos dias marcados — a tela avisa antes e o banco recusa.</li>
+      <li><strong>SANE e admin passam</strong>, com aviso em âmbar, para resolver exceção real (feriado que deslocou a entrega, correção de lançamento).</li>
+      <li>Recibos <strong>já cadastrados</strong> em outros dias continuam válidos e editáveis — a regra só vale quando a data muda.</li>
+      <li>Deixar <strong>todos os dias</strong> marcados equivale a não ter restrição (é o padrão de fábrica).</li>
+    </ul>
+    <div class="callout dica">
+      Se a SANE começar a receber muitos pedidos de exceção, isso é o diagnóstico de que o calendário real não é
+      só aquele dia — vale rever quais dias estão marcados em vez de lançar tudo manualmente.
+    </div>
     <AjudaFig
       titulo="Administração"
       legenda="① Abas (Usuários, Log de auditoria, Configurações). ② Papel do usuário. ③ Campi vinculados (1+). ④ Definir senha."
@@ -305,15 +438,20 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 
     <hr />
 
-    <h2>11. Perguntas frequentes e glossário</h2>
+    <h2>15. Perguntas frequentes e glossário</h2>
     <p><strong>“Erro ao salvar” ao criar uma NF.</strong> Em geral a NF já existe (o número é único por grupo). A mensagem indica o motivo — abra a NF existente na lista em vez de recriá-la.</p>
     <p><strong>Os itens do grupo não aparecem na NF.</strong> Já corrigido: ao trocar de grupo os itens carregam automaticamente. Confirme se o grupo está selecionado.</p>
     <p><strong>Preciso de uma NF única para dois grupos (C Teixeira).</strong> Selecione os dois grupos nas “pílulas”; cada item vai ao empenho do seu próprio grupo na distribuição.</p>
     <p><strong>Quero usar o preço antigo (pré-reajuste) numa NF.</strong> Edite o valor unitário da linha ou escolha o preço no seletor de histórico.</p>
+    <p><strong>O painel de reforços mostra dezenas de “Prazo vencido”.</strong> Em geral o <em>prazo de tramitação</em> configurado é maior que o real. Ajuste-o em Administração → Configurações e a lista encolhe. Se o prazo estiver certo, a leitura é dura mas verdadeira: aqueles saldos acabam antes de um reforço conseguir tramitar.</p>
+    <p><strong>Um item aparece alertando, mas sei que tem estoque de sobra.</strong> Olhe a coluna “Esgota entre”: se vier “a partir de…” com “projeções discordam”, a regressão viu tendência de alta sobre um consumo pequeno. São os casos de menor confiança — confira no Consumo antes de agir.</p>
+    <p><strong>Um campus não consegue lançar recibo de determinada data.</strong> A restrição de dias da semana está ativa (seção 14). Você, como SANE, consegue lançar a exceção; ou um admin ajusta os dias marcados.</p>
+    <p><strong>Para que serve a aba Atas se já existe o Consumo?</strong> O Consumo olha o <em>empenho</em> (quanto resta de NE); as Atas olham o <em>contrato</em> (quanto resta do que foi licitado). Item sem saldo de NE mas com saldo de ata pede reforço; item sem saldo de ata pede nova contratação.</p>
     <p class="glossario">
       <strong>Glossário:</strong> <em>NE</em> = nota de empenho · <em>NF</em> = nota fiscal · <em>CatMat</em> = código do item no grupo ·
       <em>Apostilamento</em> = reajuste contratual de preços · <em>Ateste</em> = documento que atesta o recebimento para pagamento ·
-      <em>Rateio</em> = divisão do valor da NF entre empenhos.
+      <em>Rateio</em> = divisão do valor da NF entre empenhos · <em>Ocorrência</em> = item não entregue ou devolvido, registrado no recibo ·
+      <em>Cobertura</em> = por quanto tempo o saldo ainda dá, no ritmo observado · <em>Reforço</em> = acréscimo de valor a uma NE existente.
     </p>
   </div>
 </template>

@@ -20,6 +20,15 @@ npm run dev
 
 A aplicação inicia em http://localhost:5173.
 
+```bash
+npm test          # suíte (vitest)
+npm run build     # type-check + build de produção
+```
+
+A lógica com regra de negócio não trivial fica isolada em módulos puros, sem Vue
+nem Supabase, justamente para ser testada: `src/lib/projecao.ts` (projeção de
+reforço) e `src/lib/dias-semana.ts` (dias aceitos no recibo).
+
 ## Setup do Supabase
 
 1. Crie um projeto em https://supabase.com/dashboard
@@ -31,6 +40,19 @@ A aplicação inicia em http://localhost:5173.
 
    Alternativa via CLI (requer `SUPABASE_DB_HOST`/`SUPABASE_DB_PASSWORD` no `.env.local`):
    `node supabase/apply.mjs`
+
+### Migrações incrementais (`supabase/migrations/`)
+
+O `schema.sql` é a DDL completa e canônica. Para uma instalação **que já está em
+produção**, cada mudança também vai como arquivo avulso e idempotente em
+`supabase/migrations/`, para ser colado no SQL Editor sem rodar schema e seed
+inteiros.
+
+> **Atenção:** mudança de código que depende de objeto novo no banco **não
+> funciona sozinha** — a migração correspondente precisa ser aplicada. E repare
+> que `insert ... on conflict do nothing` **não corrige linha existente**: para
+> alterar uma configuração já gravada, a migração precisa trazer um `update`
+> explícito.
 
 ### Scripts de manutenção (`supabase/`)
 
@@ -67,17 +89,26 @@ Arquitetura e camada de API: `docs/ADR-001-host-e-backend.md` e `docs/API-CAMADA
 ```
 cpii-sane/
 ├── src/
-│   ├── lib/supabase.ts        # client Supabase
+│   ├── lib/
+│   │   ├── supabase.ts        # client Supabase
+│   │   ├── consulta.ts        # buscarTudo(): paginação (teto de 1.000 linhas da API)
+│   │   ├── projecao.ts        # projeção de esgotamento e data-limite do reforço
+│   │   ├── dias-semana.ts     # dias aceitos na data do pedido do recibo
+│   │   ├── config.ts          # configurações globais (cache em memória)
+│   │   └── pdf-*.ts           # geradores de PDF (ateste, saldos, lançamento)
 │   ├── stores/auth.ts         # Pinia store de autenticação
 │   ├── router/                # rotas
-│   ├── views/                 # telas (Home, Login, Recibos, ReciboForm)
-│   ├── components/            # componentes reutilizáveis
+│   ├── views/                 # telas (recibos, NFs, empenhos, atas, consumo, ajuda…)
+│   ├── components/            # componentes reutilizáveis (PainelReforcos, PdfUpload…)
 │   ├── types/database.ts      # tipos TypeScript do schema
 │   └── App.vue
 ├── supabase/
-│   ├── schema.sql             # DDL do banco
+│   ├── schema.sql             # DDL completa e canônica
+│   ├── migrations/            # mudanças avulsas para aplicar em produção
 │   └── seed.sql               # dados iniciais
-└── .github/workflows/deploy.yml
+├── tests/                     # vitest (regras de negócio e RLS)
+├── docs/                      # ADRs e regras de domínio
+└── .github/workflows/
 ```
 
 ## Modelo de dados
@@ -96,9 +127,20 @@ cpii-sane/
 - **nf_itens** — itens de cada NF (quantidades físicas)
 - **nf_empenhos** — rateio financeiro N:N entre NF e empenhos (fonte de verdade do débito orçamentário; a função `distribute_nf_fifo` grava aqui)
 
-E uma tabela auxiliar:
+Tabelas de apoio:
 
-- **perfis** — papel do usuário (campus/sane/admin) e campus vinculado
+- **perfis** / **perfis_campi** — papel do usuário (campus/sane/admin) e campi vinculados (N:N)
+- **itens_precos** — histórico de preços por item (apostilamento), com vigência
+- **nf_recibos** / **nf_grupos** — vínculos N:N da NF com recibos e grupos
+- **recibos_anexos** — PDFs adicionais do recibo
+- **recibos_ocorrencias** — itens não entregues ou devolvidos (não entram nas quantidades recebidas)
+- **solicitacoes_nf** (+ `_recibos`, `_itens`) — pedidos de emissão de NF à empresa
+- **atestes** / **atestes_nfs** — atestes de recebimento emitidos
+- **configuracoes** — parâmetros globais chave/valor editados pelo admin
+- **audit_log** — trilha de auditoria preenchida por gatilho
+
+As particularidades de negócio do modelo — e as decisões que parecem bug mas não
+são — estão em `docs/DOMINIO-SANE.md`. Vale ler antes de “corrigir” algo aqui.
 
 ## Licença
 
