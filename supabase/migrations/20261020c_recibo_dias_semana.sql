@@ -12,10 +12,19 @@
 -- anterior preservado, importante para quem ja usa o sistema).
 begin;
 
+-- A legenda e escrita para a tela, que usa caixas de selecao: nao menciona a
+-- codificacao numerica nem o valor vazio, que o editor nem deixa produzir.
+-- O update vem junto porque o insert com "do nothing" nao corrige a descricao
+-- de uma instalacao que ja tenha a chave gravada.
 insert into public.configuracoes (chave, valor, descricao) values
   ('recibo_dias_semana', '0,1,2,3,4,5,6',
-   'Dias da semana em que a data de recebimento do recibo pode cair (0=domingo … 6=sábado). Desmarcar dias impede os campi de lançar recibos com essas datas. Vazio libera todos.')
+   'Dias da semana em que a data do pedido do recibo pode cair. Desmarque um dia para impedir os campi de lançar recibos com data nesse dia — SANE e admin continuam podendo, para resolver exceções.')
 on conflict (chave) do nothing;
+
+update public.configuracoes
+   set descricao = 'Dias da semana em que a data do pedido do recibo pode cair. Desmarque um dia para impedir os campi de lançar recibos com data nesse dia — SANE e admin continuam podendo, para resolver exceções.'
+ where chave = 'recibo_dias_semana'
+   and descricao is distinct from 'Dias da semana em que a data do pedido do recibo pode cair. Desmarque um dia para impedir os campi de lançar recibos com data nesse dia — SANE e admin continuam podendo, para resolver exceções.';
 
 -- Gatilho de validacao. Fica no banco, e nao so na tela, porque a tela pode
 -- ser contornada e a regra precisa valer para qualquer caminho de escrita.
