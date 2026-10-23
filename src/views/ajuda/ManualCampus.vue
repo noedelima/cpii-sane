@@ -17,7 +17,7 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
       <ol>
         <li>Conceitos: o que é o recibo e por que registrar</li>
         <li>Entrar no sistema (login)</li>
-        <li>O menu e a tela inicial</li>
+        <li>A barra lateral e a tela inicial</li>
         <li>Cadastrar um recibo (passo a passo)</li>
         <li>Faltas e devoluções: registrar ocorrências</li>
         <li>Corrigir um recibo já salvo</li>
@@ -89,25 +89,51 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 
     <h2>3. O menu e a tela inicial</h2>
     <p>
-      Depois de entrar, o menu no topo dá acesso às áreas. Como Campus, você usará principalmente
-      <strong>Recibos</strong>. O <strong>Dashboard</strong> mostra um panorama geral; <strong>Ajuda</strong> traz este manual.
+      Depois de entrar, a navegação fica na <strong>barra lateral esquerda</strong>, organizada por tarefa.
+      Como Campus, você usará principalmente <strong>Recibos</strong>, no grupo <em>Lançar</em>. O
+      <strong>Dashboard</strong> mostra um panorama geral e <strong>Ajuda</strong>, no rodapé da barra, traz
+      este manual.
     </p>
     <AjudaFig
-      titulo="Menu superior"
-      legenda="① Recibos é a sua área principal. ② Seu nome e perfil; clique para trocar a senha ou sair."
-      :marcadores="[{ n: 1, top: '50%', left: '20.5%' }, { n: 2, top: '50%', left: '88%' }]"
+      titulo="Barra lateral"
+      legenda="① Botão que recolhe a barra para só ícones (no celular, abre a gaveta). ② Recibos é a sua área principal. ③ Ajuda fica no rodapé da barra. ④ Seu nome e perfil: trocar a senha ou sair."
+      :marcadores="[
+        { n: 1, top: '9%', left: '6%' },
+        { n: 2, top: '45%', left: '20%' },
+        { n: 3, top: '88%', left: '18%' },
+        { n: 4, top: '9%', left: '90%' },
+      ]"
     >
-      <div class="rounded-md bg-cpii-600 text-white px-4 py-3 flex items-center justify-between text-sm">
-        <div class="flex items-center gap-3">
-          <span class="font-semibold">Portal da Nutrição</span>
-          <span class="opacity-90">Dashboard</span>
-          <span class="bg-cpii-700 rounded px-2 py-0.5">Recibos</span>
-          <span class="opacity-90">Notas Fiscais</span>
-          <span class="opacity-90 hidden sm:inline">Ajuda</span>
+      <div class="text-sm">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-3 py-2">
+          <div class="flex items-center gap-2">
+            <span class="text-slate-400">☰</span>
+            <span class="font-semibold text-cpii-700 dark:text-gold-300">Portal da Nutrição</span>
+          </div>
+          <span class="text-slate-500 dark:text-slate-400">Seu nome ▾</span>
         </div>
-        <span class="opacity-90">Seu nome ▾</span>
+        <div class="flex">
+          <div class="w-44 shrink-0 border-r border-slate-200 dark:border-slate-700 p-2 space-y-0.5">
+            <div class="rounded-lg px-3 py-1.5 text-slate-600 dark:text-slate-300">Dashboard</div>
+            <div class="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Lançar</div>
+            <div class="rounded-lg bg-cpii-600 px-3 py-1.5 font-medium text-white">Recibos</div>
+            <div class="rounded-lg px-3 py-1.5 text-slate-600 dark:text-slate-300">Notas Fiscais</div>
+            <div class="rounded-lg px-3 py-1.5 text-slate-600 dark:text-slate-300">Empenhos</div>
+            <div class="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Cadastros</div>
+            <div class="rounded-lg px-3 py-1.5 text-slate-600 dark:text-slate-300">Grupos</div>
+            <div class="mt-3 border-t border-slate-200 dark:border-slate-700 pt-2">
+              <div class="rounded-lg px-3 py-1.5 text-slate-600 dark:text-slate-300">Ajuda</div>
+            </div>
+          </div>
+          <div class="grow p-4 text-slate-500 dark:text-slate-400">Conteúdo da tela escolhida</div>
+        </div>
       </div>
     </AjudaFig>
+    <div class="callout dica">
+      No <strong>celular</strong> a barra não fica fixa: toque no ☰, no canto superior esquerdo, para abrir a
+      gaveta com os mesmos grupos. No computador, o mesmo botão <em>recolhe</em> a barra para só ícones, dando
+      mais largura às tabelas — e o sistema lembra sua escolha.
+    </div>
 
     <hr />
 

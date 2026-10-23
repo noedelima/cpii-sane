@@ -37,6 +37,14 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
     <hr />
 
     <h2>1. Visão geral: papéis e o ciclo do fluxo</h2>
+    <p>
+      A navegação fica na <strong>barra lateral esquerda</strong>, agrupada por tarefa:
+      <strong>Lançar</strong> (recibos, NFs, empenhos), <strong>Documentos</strong> (solicitação de NF e
+      ateste), <strong>Análise</strong> (consumo, atas, notificações) e <strong>Cadastros</strong> (grupos e
+      fornecedores). Ajuda e Administração ficam no rodapé da barra. O botão ☰, no topo, recolhe a barra
+      para só ícones — útil nas telas de tabela larga, como Consumo e Notificações — e a escolha fica
+      guardada. No celular, o mesmo botão abre a barra como gaveta.
+    </p>
     <p><strong>Quem faz o quê:</strong></p>
     <ul class="lista">
       <li><strong>Campus</strong> — registra os recibos das entregas no seu campus.</li>

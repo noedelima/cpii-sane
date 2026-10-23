@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { isDark, toggleTheme } from "@/lib/theme";
+import NavLateral from "@/components/NavLateral.vue";
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -12,6 +13,11 @@ void auth.ensureInit();
 
 const userMenuOpen = ref(false);
 const mobileOpen = ref(false);
+
+// Barra lateral recolhida: preferencia por navegador, como o tema. Telas de
+// tabela larga (Consumo, Notificacoes) agradecem os 170 px de volta.
+const navRecolhida = ref(localStorage.getItem("sane-nav-recolhida") === "1");
+watch(navRecolhida, (v) => localStorage.setItem("sane-nav-recolhida", v ? "1" : "0"));
 const pwdModalOpen = ref(false);
 const newPwd = ref("");
 const newPwd2 = ref("");
@@ -67,32 +73,9 @@ async function sair() {
 
 const logoUrl = import.meta.env.BASE_URL + "cpii-logo.png";
 
-const navItems = computed(() => {
-  const items = [
-    { to: "/dashboard", label: "Dashboard" },
-    { to: "/recibos", label: "Recibos" },
-    { to: "/nfs", label: "Notas Fiscais" },
-    { to: "/empenhos", label: "Empenhos" },
-    { to: "/grupos", label: "Grupos" },
-  ];
-  if (auth.isSane) {
-    items.push({ to: "/fornecedores", label: "Fornecedores" });
-    items.push({ to: "/atas", label: "Atas" });
-    items.push({ to: "/consumo", label: "Consumo" });
-    items.push({ to: "/notificacoes", label: "Notificações" });
-    items.push({ to: "/solicitar-nf", label: "Solicitar NF" });
-    items.push({ to: "/ateste", label: "Ateste" });
-  }
-  items.push({ to: "/ajuda", label: "Ajuda" });
-  return items;
-});
-
-// Classes compartilhadas dos links de navegação (estado normal + ativo)
-const navLink =
-  "whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white";
-const navLinkActive = "!bg-cpii-600 !text-white hover:!bg-cpii-700 shadow-sm";
-const navLinkMobile =
-  "block rounded-lg px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800";
+// A lista de telas vive em @/lib/navegacao (com teste de visibilidade por
+// papel). O cabecalho horizontal anterior nao cabia mais: 13 destinos numa
+// linha so empurravam a pagina inteira para o lado.
 </script>
 
 <template>
@@ -100,8 +83,32 @@ const navLinkMobile =
     <header
       class="sticky top-0 z-30 border-b border-slate-200 bg-slate-50/85 backdrop-blur-md dark:border-slate-700 dark:bg-slate-900/85"
     >
-      <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div class="px-3 sm:px-4">
         <div class="flex h-16 items-center justify-between gap-2">
+          <!-- Recolher a lateral (desktop) / abrir a gaveta (celular) -->
+          <button
+            v-if="auth.user"
+            class="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white lg:hidden"
+            aria-label="Abrir menu de navegação"
+            :aria-expanded="mobileOpen"
+            @click.stop="mobileOpen = !mobileOpen"
+          >
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <button
+            v-if="auth.user"
+            class="hidden rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white lg:block"
+            :title="navRecolhida ? 'Expandir menu' : 'Recolher menu'"
+            :aria-label="navRecolhida ? 'Expandir menu' : 'Recolher menu'"
+            @click="navRecolhida = !navRecolhida"
+          >
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+
           <!-- Marca -->
           <RouterLink to="/" class="flex items-center gap-2.5 shrink-0">
             <span
@@ -119,22 +126,8 @@ const navLinkMobile =
             </span>
           </RouterLink>
 
-          <!-- Navegação (desktop) -->
-          <nav v-if="auth.user" class="hidden items-center gap-0.5 xl:flex">
-            <RouterLink
-              v-for="item in navItems"
-              :key="item.to"
-              :to="item.to"
-              :class="navLink"
-              :active-class="navLinkActive"
-            >{{ item.label }}</RouterLink>
-            <RouterLink v-if="auth.isAdmin" to="/admin" :class="navLink" :active-class="navLinkActive">
-              Administração
-            </RouterLink>
-          </nav>
-
           <!-- Ações (direita) -->
-          <div class="relative flex items-center gap-1">
+          <div class="relative ml-auto flex items-center gap-1">
             <button
               class="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
               :title="isDark ? 'Tema claro' : 'Tema escuro'"
@@ -184,20 +177,6 @@ const navLinkMobile =
                 </button>
               </div>
 
-              <!-- Menu compacto (mobile) -->
-              <button
-                class="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 xl:hidden"
-                :aria-expanded="mobileOpen"
-                aria-label="Abrir menu de navegação"
-                @click.stop="mobileOpen = !mobileOpen"
-              >
-                <svg v-if="!mobileOpen" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-                <svg v-else class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
             </template>
             <RouterLink
               v-else-if="route.name !== 'login'"
@@ -210,30 +189,54 @@ const navLinkMobile =
         </div>
       </div>
 
-      <!-- Navegação (mobile, expansível) -->
-      <nav
-        v-if="auth.user && mobileOpen"
-        class="space-y-1 border-t border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900 xl:hidden"
-      >
-        <RouterLink
-          v-for="item in navItems"
-          :key="item.to"
-          :to="item.to"
-          :class="navLinkMobile"
-          active-class="!bg-cpii-600 !text-white"
-        >{{ item.label }}</RouterLink>
-        <RouterLink v-if="auth.isAdmin" to="/admin" :class="navLinkMobile" active-class="!bg-cpii-600 !text-white">
-          Administração
-        </RouterLink>
-      </nav>
     </header>
 
-    <main class="flex-1" @click="userMenuOpen = false">
-      <div v-if="auth.loading" class="flex items-center justify-center py-20 text-slate-500 dark:text-slate-400">
-        Carregando…
+    <div class="flex flex-1">
+      <!-- Navegação lateral (desktop) -->
+      <aside
+        v-if="auth.user"
+        class="sticky top-16 hidden h-[calc(100vh-4rem)] shrink-0 overflow-y-auto border-r border-slate-200
+               transition-[width] duration-200 dark:border-slate-700 lg:block"
+        :class="navRecolhida ? 'w-[4.5rem]' : 'w-56'"
+      >
+        <NavLateral :recolhida="navRecolhida" />
+      </aside>
+
+      <main class="min-w-0 flex-1" @click="userMenuOpen = false">
+        <div v-if="auth.loading" class="flex items-center justify-center py-20 text-slate-500 dark:text-slate-400">
+          Carregando…
+        </div>
+        <RouterView v-else />
+      </main>
+    </div>
+
+    <!-- Navegação (celular): gaveta sobre o conteúdo -->
+    <div
+      v-if="auth.user && mobileOpen"
+      class="fixed inset-0 z-40 bg-slate-900/50 lg:hidden"
+      @click="mobileOpen = false"
+    >
+      <div
+        class="absolute inset-y-0 left-0 w-64 overflow-y-auto border-r border-slate-200 bg-slate-50
+               dark:border-slate-700 dark:bg-slate-900"
+        @click.stop
+      >
+        <div class="flex h-16 items-center gap-2.5 px-4">
+          <span
+            class="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200 dark:ring-slate-700"
+          >
+            <img :src="logoUrl" alt="" class="h-6 w-6 object-contain" />
+          </span>
+          <span class="leading-tight">
+            <span class="block text-sm font-bold tracking-tight text-cpii-700 dark:text-gold-300">
+              Portal da Nutrição
+            </span>
+            <span class="block text-[10px] text-slate-500 dark:text-slate-400">Colégio Pedro II</span>
+          </span>
+        </div>
+        <NavLateral @navegar="mobileOpen = false" />
       </div>
-      <RouterView v-else />
-    </main>
+    </div>
 
     <footer class="border-t border-slate-200 dark:border-slate-700 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
       Portal da Nutrição — Colégio Pedro II · SANE · v0.2.0
