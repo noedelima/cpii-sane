@@ -169,7 +169,7 @@ export function montarPdfSolicitacaoNF(p: SolicNFParams): { doc: jsPDF; filename
     doc.setPage(i);
     doc.setFontSize(7.5).setTextColor(130);
     doc.text(
-      `Solicitação de NF nº ${numeroDoc} · gerada no CPII SANE Controle em ${new Date().toLocaleString("pt-BR")}` +
+      `Solicitação de NF nº ${numeroDoc} · gerada no Portal da Nutrição em ${new Date().toLocaleString("pt-BR")}` +
         (p.emitidoPor ? ` por ${p.emitidoPor}` : ""),
       M,
       H - 8

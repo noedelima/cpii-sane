@@ -266,7 +266,7 @@ export function montarPdfAteste(p: AtesteDocParams): {
     doc.setPage(i);
     doc.setFontSize(7.5).setTextColor(130);
     doc.text(
-      `Ateste nº ${numeroDoc} · gerado no CPII SANE Controle em ${new Date().toLocaleString("pt-BR")} por ${p.assinanteNome || "—"}`,
+      `Ateste nº ${numeroDoc} · gerado no Portal da Nutrição em ${new Date().toLocaleString("pt-BR")} por ${p.assinanteNome || "—"}`,
       M,
       doc.internal.pageSize.getHeight() - 8
     );

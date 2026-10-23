@@ -160,7 +160,7 @@ export function montarPdfNFLancamento(p: NFLancParams): { doc: jsPDF; filename: 
     doc.setPage(i);
     doc.setFontSize(7.5).setTextColor(130);
     doc.text(
-      `Lançamento da NF ${p.numero} · gerado no CPII SANE Controle em ${new Date().toLocaleString("pt-BR")}` +
+      `Lançamento da NF ${p.numero} · gerado no Portal da Nutrição em ${new Date().toLocaleString("pt-BR")}` +
         (p.emitidoPor ? ` por ${p.emitidoPor}` : ""),
       M,
       H - 8

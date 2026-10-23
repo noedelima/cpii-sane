@@ -205,7 +205,7 @@ export function montarPdfEmpenhoSaldos(p: EmpenhoSaldosParams): {
     doc.setPage(i);
     doc.setFontSize(7.5).setTextColor(130);
     doc.text(
-      `Saldos de empenho · gerado no CPII SANE Controle em ${dataGer.toLocaleString("pt-BR")}` +
+      `Saldos de empenho · gerado no Portal da Nutrição em ${dataGer.toLocaleString("pt-BR")}` +
         (p.emitidoPor ? ` por ${p.emitidoPor}` : ""),
       M,
       H - 8
