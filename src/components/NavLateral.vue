@@ -2,7 +2,7 @@
 // Barra de navegacao lateral. Serve tanto a coluna fixa do desktop quanto a
 // gaveta do celular — a diferenca e so o estado "recolhida", que a gaveta
 // nunca usa.
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { navegacaoPara, type Papel } from "@/lib/navegacao";
@@ -25,6 +25,20 @@ const base =
   "text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 " +
   "dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white";
 const ativo = "!bg-cpii-600 !text-white hover:!bg-cpii-700 shadow-sm";
+
+// Dica flutuante da barra recolhida.
+//
+// Precisa ser `fixed`, posicionada por JS: a barra tem overflow-y-auto para
+// rolar quando a tela e baixa, e isso recorta qualquer filho `absolute` que
+// tente sair pela lateral. A primeira versao usava absolute + group-hover e
+// simplesmente nao aparecia.
+const dica = ref<{ texto: string; topo: number } | null>(null);
+
+function mostrarDica(e: MouseEvent | FocusEvent, texto: string) {
+  if (!props.recolhida) return;
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  dica.value = { texto, topo: r.top + r.height / 2 };
+}
 </script>
 
 <template>
@@ -57,6 +71,10 @@ const ativo = "!bg-cpii-600 !text-white hover:!bg-cpii-700 shadow-sm";
         :active-class="ativo"
         :title="props.recolhida ? i.label : undefined"
         @click="emit('navegar')"
+        @mouseenter="mostrarDica($event, i.label)"
+        @mouseleave="dica = null"
+        @focus="mostrarDica($event, i.label)"
+        @blur="dica = null"
       >
         <svg
           class="h-5 w-5 shrink-0"
@@ -70,18 +88,21 @@ const ativo = "!bg-cpii-600 !text-white hover:!bg-cpii-700 shadow-sm";
           <path v-if="i.d2" stroke-linecap="round" stroke-linejoin="round" :d="i.d2" />
         </svg>
         <span v-if="!props.recolhida" class="truncate">{{ i.label }}</span>
-
-        <!-- Recolhida, o nome aparece ao passar o mouse: o title nativo demora
-             demais para quem esta procurando a tela. -->
-        <span
-          v-if="props.recolhida"
-          class="pointer-events-none absolute left-full z-40 ml-2 hidden whitespace-nowrap rounded-md
-                 border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 shadow-md
-                 group-hover:block dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-        >
-          {{ i.label }}
-        </span>
       </RouterLink>
     </template>
+
+    <!-- Fora da lista e com position: fixed, para escapar do recorte da barra. -->
+    <Teleport to="body">
+      <span
+        v-if="dica"
+        class="pointer-events-none fixed left-[4.75rem] z-50 -translate-y-1/2 whitespace-nowrap
+               rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700
+               shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+        :style="{ top: dica.topo + 'px' }"
+        role="tooltip"
+      >
+        {{ dica.texto }}
+      </span>
+    </Teleport>
   </nav>
 </template>
