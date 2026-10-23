@@ -64,10 +64,11 @@ const cards = computed<CardDef[]>(() => [
   <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-10">
     <div v-if="!auth.user" class="card p-10 text-center">
       <img :src="logoUrl" alt="Colégio Pedro II" class="mx-auto h-28 w-28 object-contain mb-5" />
-      <h1 class="text-2xl font-semibold mb-3">Controle de Empenhos da SANE</h1>
+      <h1 class="text-2xl font-semibold mb-1">Portal da Nutrição</h1>
+      <p class="text-sm text-slate-500 dark:text-slate-400 mb-3">Colégio Pedro II</p>
       <p class="text-slate-600 dark:text-slate-300 mb-6 max-w-xl mx-auto">
-        Sistema interno do Colégio Pedro II para registro e acompanhamento de empenhos,
-        notas fiscais e recibos de gêneros alimentícios.
+        Sistema da Seção de Alimentação e Nutrição (SANE) para registro e acompanhamento de
+        empenhos, notas fiscais e recibos de gêneros alimentícios.
       </p>
       <RouterLink to="/login" class="btn-primary">Entrar com e-mail @cp2.g12.br</RouterLink>
     </div>

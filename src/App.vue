@@ -110,9 +110,11 @@ const navLinkMobile =
               <img :src="logoUrl" alt="Colégio Pedro II" class="h-7 w-7 object-contain" />
             </span>
             <span class="leading-tight">
-              <span class="block text-lg font-bold tracking-tight text-cpii-700 dark:text-gold-300">SANE</span>
-              <span class="hidden text-[11px] text-slate-500 dark:text-slate-400 sm:block xl:hidden">
-                Controle de Empenhos e NFs · SANE
+              <span class="block text-lg font-bold tracking-tight text-cpii-700 dark:text-gold-300">
+                Portal da Nutrição
+              </span>
+              <span class="block text-[11px] text-slate-500 dark:text-slate-400">
+                Colégio Pedro II
               </span>
             </span>
           </RouterLink>
@@ -234,7 +236,7 @@ const navLinkMobile =
     </main>
 
     <footer class="border-t border-slate-200 dark:border-slate-700 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
-      SANE — Colégio Pedro II · v0.2.0
+      Portal da Nutrição — Colégio Pedro II · SANE · v0.2.0
     </footer>
 
     <!-- Modal: trocar senha -->

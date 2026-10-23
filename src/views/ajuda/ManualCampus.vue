@@ -5,7 +5,8 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 <template>
   <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-8 ajuda-doc">
     <p class="intro">
-      Este manual é para os servidores dos <strong>campi</strong> que registram no sistema os
+      Este manual é para os servidores dos <strong>campi</strong> que registram no
+      <strong>Portal da Nutrição</strong> os
       <strong>recibos</strong> de entrega de gêneros alimentícios. Cada seção é independente; siga na ordem
       se estiver começando. As telas abaixo são reproduções fiéis do sistema, com dados de exemplo e
       <span class="marca-inline">marcadores numerados</span> apenas para fins didáticos (eles não aparecem no sistema).
@@ -68,10 +69,11 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
       :marcadores="[{ n: 1, top: '78%', left: '50%' }]"
     >
       <div class="card p-6 text-center text-sm space-y-3 max-w-md mx-auto">
-        <div class="text-lg font-semibold">Controle de Empenhos da SANE</div>
+        <div class="text-lg font-semibold">Portal da Nutrição</div>
+        <div class="text-xs text-slate-500 dark:text-slate-400">Colégio Pedro II</div>
         <p class="text-slate-500 dark:text-slate-400">
-          Sistema interno do Colégio Pedro II para registro e acompanhamento de empenhos,
-          notas fiscais e recibos de gêneros alimentícios.
+          Sistema da Seção de Alimentação e Nutrição (SANE) para registro e acompanhamento de
+          empenhos, notas fiscais e recibos de gêneros alimentícios.
         </p>
         <div><span class="btn-primary inline-block">Entrar com e-mail @cp2.g12.br</span></div>
       </div>
@@ -97,7 +99,7 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
     >
       <div class="rounded-md bg-cpii-600 text-white px-4 py-3 flex items-center justify-between text-sm">
         <div class="flex items-center gap-3">
-          <span class="font-semibold">SANE — Controle</span>
+          <span class="font-semibold">Portal da Nutrição</span>
           <span class="opacity-90">Dashboard</span>
           <span class="bg-cpii-700 rounded px-2 py-0.5">Recibos</span>
           <span class="opacity-90">Notas Fiscais</span>

@@ -1,6 +1,9 @@
-# CPII SANE — Controle de Empenhos e Notas Fiscais
+# Portal da Nutrição — Colégio Pedro II
 
 Sistema web para registro e acompanhamento de **empenhos, notas fiscais e recibos** de gêneros alimentícios da SANE (Seção de Alimentação e Nutrição) do **Colégio Pedro II**.
+
+> O repositório e o pacote npm continuam com o nome técnico `cpii-sane`; **Portal da
+> Nutrição** é o nome de exibição do sistema, alinhado ao Portal da Engenharia.
 
 ## Stack
 

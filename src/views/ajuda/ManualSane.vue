@@ -5,7 +5,8 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 <template>
   <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-8 ajuda-doc">
     <p class="intro">
-      Manual completo para a equipe da <strong>SANE</strong> (perfis SANE e Administração). Cobre os cadastros e
+      Manual completo do <strong>Portal da Nutrição</strong> para a equipe da <strong>SANE</strong>
+      (perfis SANE e Administração). Cobre os cadastros e
       todo o fluxo financeiro — grupos/itens, empenhos, notas fiscais, solicitação de NF e ateste —, as telas de
       acompanhamento (atas, consumo, reforços previstos e notificações) e a administração do sistema. As telas
       são reproduções fiéis (dados de exemplo) com <span class="marca-inline">marcadores numerados</span>

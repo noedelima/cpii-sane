@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Sistema de Controle de Empenhos e Notas Fiscais — SANE / Colégio Pedro II",
+  "description": "Portal da Nutrição — controle de empenhos, notas fiscais e recibos da SANE / Colégio Pedro II",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
