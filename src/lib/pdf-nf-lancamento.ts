@@ -47,7 +47,7 @@ export function montarPdfNFLancamento(p: NFLancParams): { doc: jsPDF; filename: 
     setor1: "Pró-Reitoria de Administração — PROAD",
     setor2: "Seção de Alimentação e Nutrição — SANE",
   };
-  if (p.logoDataUrl) doc.addImage(p.logoDataUrl, "PNG", M, 12, 24, 19.5);
+  if (p.logoDataUrl) doc.addImage(p.logoDataUrl, "PNG", M, 12, 24, 19.5, "logo", "FAST");
   doc.setFont("helvetica", "bold").setFontSize(13).setTextColor(0);
   doc.text(cab.orgao, W / 2, 17, { align: "center" });
   doc.setFont("helvetica", "normal").setFontSize(9);

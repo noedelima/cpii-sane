@@ -77,10 +77,11 @@ const params: AtesteDocParams = {
   assinanteNome: "Noé de Lima Bezerra",
   assinanteMatricula: "3304702",
   // O logo e lido do disco: carregarLogo() do app usa fetch/FileReader, que
-  // so existem no navegador.
+  // so existem no navegador. Mesmo arquivo que o app usa nos PDFs - usar o de
+  // resolucao cheia aqui faria a medicao de tamanho mentir.
   logoDataUrl:
     "data:image/png;base64," +
-    fs.readFileSync(path.resolve("public/cpii-logo.png")).toString("base64"),
+    fs.readFileSync(path.resolve("public/cpii-logo-pdf.png")).toString("base64"),
 };
 
 const { doc, numeroDoc, filename } = montarPdfAteste(params);

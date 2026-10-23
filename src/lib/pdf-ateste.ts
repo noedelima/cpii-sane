@@ -23,11 +23,18 @@ export interface AtesteDocParams {
 
 let logoCache: string | null = null;
 
-/** Carrega o logo institucional (cacheado) como dataURL. */
+/**
+ * Carrega o logo institucional (cacheado) como dataURL, para os PDFs.
+ *
+ * Usa a versao reduzida (cpii-logo-pdf.png, gerada por scripts/gera-logo-pdf.mjs),
+ * nao a da tela: o jsPDF embute PNG como pixels crus, e o arquivo em resolucao
+ * cheia sozinho colocava ~3 MB em cada documento. Os PDFs vao por e-mail as
+ * empresas e sao anexados a processos no SUAP, onde o peso conta.
+ */
 export async function carregarLogo(): Promise<string | null> {
   if (logoCache) return logoCache;
   try {
-    const resp = await fetch(import.meta.env.BASE_URL + "cpii-logo.png");
+    const resp = await fetch(import.meta.env.BASE_URL + "cpii-logo-pdf.png");
     const blob = await resp.blob();
     logoCache = await new Promise<string>((resolve, reject) => {
       const r = new FileReader();
@@ -88,7 +95,7 @@ export function montarPdfAteste(p: AtesteDocParams): {
     setor1: "Pró-Reitoria de Administração — PROAD",
     setor2: "Seção de Alimentação e Nutrição — SANE",
   };
-  if (p.logoDataUrl) doc.addImage(p.logoDataUrl, "PNG", M, 12, 24, 19.5);
+  if (p.logoDataUrl) doc.addImage(p.logoDataUrl, "PNG", M, 12, 24, 19.5, "logo", "FAST");
   doc.setFont("helvetica", "bold").setFontSize(13);
   doc.text(cab.orgao, W / 2, 17, { align: "center" });
   doc.setFont("helvetica", "normal").setFontSize(9);

@@ -52,7 +52,7 @@ function cabecalho(
   cab: { orgao: string; setor1: string; setor2: string }
 ): number {
   const W = doc.internal.pageSize.getWidth();
-  if (logo) doc.addImage(logo, "PNG", M, 12, 24, 19.5);
+  if (logo) doc.addImage(logo, "PNG", M, 12, 24, 19.5, "logo", "FAST");
   doc.setFont("helvetica", "bold").setFontSize(13).setTextColor(0);
   doc.text(cab.orgao, W / 2, 17, { align: "center" });
   doc.setFont("helvetica", "normal").setFontSize(9);
