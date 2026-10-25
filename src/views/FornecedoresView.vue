@@ -32,13 +32,16 @@ function cadastrado(fornecedor: Fornecedor) {
 
 // ---- Exclusao de fornecedor -------------------------------------------
 //
-// ATENCAO, diferente do grupo: das seis tabelas que apontam para fornecedor,
-// quatro usam ON DELETE SET NULL (grupos, empenhos, recibos, notas_fiscais) e
-// so duas usam RESTRICT (atestes, solicitacoes_nf). Ou seja, o banco NAO e a
-// rede de seguranca aqui - excluir um fornecedor em uso apagaria o vinculo em
-// silencio, deixando grupos e NFs sem empresa. Por isso a verificacao abaixo e
-// load-bearing e cobre as SEIS tabelas, e a exclusao so e oferecida quando
-// todas estao zeradas.
+// A verificacao cobre as SEIS tabelas que referenciam fornecedor e a exclusao
+// so e oferecida com todas zeradas. Serve para explicar o motivo antes do
+// clique; a garantia vem do ON DELETE RESTRICT das chaves (secao 36.1 do
+// schema).
+//
+// Historico que vale lembrar: quatro dessas chaves estavam em ON DELETE SET
+// NULL ate 10/2025, e nesse periodo o banco NAO protegia - excluir um
+// fornecedor em uso teria apagado o vinculo em silencio, deixando grupos e NFs
+// sem empresa. Se alguem reverter a secao 36.1, esta checagem volta a ser a
+// unica barreira.
 const excluindoId = ref<number | null>(null);
 
 async function contarDependencias(id: number): Promise<Dependencia[]> {

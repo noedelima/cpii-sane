@@ -2874,3 +2874,32 @@ create policy p_grupos_delete on public.grupos for delete to authenticated
 drop policy if exists p_fornecedores_delete on public.fornecedores;
 create policy p_fornecedores_delete on public.fornecedores for delete to authenticated
   using (public.current_papel() in ('sane', 'admin'));
+
+-- 36.1) Fornecedor so sai se nao estiver em uso: as chaves que o referenciam
+-- passam de ON DELETE SET NULL para RESTRICT.
+--
+-- Quatro das seis (grupos, empenhos, recibos, notas_fiscais) estavam em SET
+-- NULL. Na pratica, excluir um fornecedor em uso NAO era barrado - o vinculo
+-- era apagado em silencio e os registros ficavam sem empresa. Perda discreta,
+-- do tipo que so aparece meses depois, quando alguem procura de quem era
+-- aquela NF. Diferente de grupo, onde o banco ja protegia, aqui a verificacao
+-- da tela era a unica barreira.
+alter table public.grupos
+  drop constraint if exists grupos_fornecedor_id_fkey,
+  add constraint grupos_fornecedor_id_fkey
+    foreign key (fornecedor_id) references public.fornecedores(id) on delete restrict;
+
+alter table public.empenhos
+  drop constraint if exists empenhos_fornecedor_id_fkey,
+  add constraint empenhos_fornecedor_id_fkey
+    foreign key (fornecedor_id) references public.fornecedores(id) on delete restrict;
+
+alter table public.recibos
+  drop constraint if exists recibos_fornecedor_id_fkey,
+  add constraint recibos_fornecedor_id_fkey
+    foreign key (fornecedor_id) references public.fornecedores(id) on delete restrict;
+
+alter table public.notas_fiscais
+  drop constraint if exists notas_fiscais_fornecedor_id_fkey,
+  add constraint notas_fiscais_fornecedor_id_fkey
+    foreign key (fornecedor_id) references public.fornecedores(id) on delete restrict;
