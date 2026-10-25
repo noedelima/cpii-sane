@@ -100,6 +100,55 @@ por greve; (2) consolidar por **item+empenho** — um item zerado numa NE costum
 ter saldo em outra, e isso gerava centenas de alertas falsos. A unidade de
 análise é o **item**, somando os empenhos ativos.
 
+## Exclusao de cadastro: so o que esta vazio, e em tres camadas
+
+Erro de digitacao em cadastro acontece. Sem exclusao pela tela o registro vira
+**residuo permanente**: um grupo chamado `ghj`, criado em 17/09/2026, ficou
+meses nas listas, nos seletores e no Dashboard — e, pior, numerado como
+`I`/`1`, colidindo com o Grupo I real em toda ordenacao.
+
+A regra e sempre a mesma: **so se exclui o que nao tem nada vinculado**, e a
+decisao e tomada em tres camadas independentes:
+
+1. **A tela** conta as dependencias ao abrir e desabilita o botao com o motivo
+   escrito (`src/lib/exclusao.ts`). Serve para explicar antes do clique.
+2. **A RLS** limita quem pode excluir — `sane` e `admin` para grupo,
+   fornecedor e empenho. Quem cadastra precisa poder limpar o proprio erro;
+   deixar so com o admin resolve metade do problema.
+3. **As chaves estrangeiras** sao a ultima palavra. Mesmo que 1 e 2 falhem, o
+   Postgres recusa.
+
+## Nem toda chave estrangeira significa a mesma coisa
+
+Ao abrir a exclusao, as regras `ON DELETE` precisaram ser revistas uma a uma —
+e nao eram uniformes. Vale entender o criterio antes de mexer:
+
+- **Dependencia real** (`RESTRICT`) — o registro filho tem vida propria e
+  perde-lo seria perda de informacao. Itens de um grupo, recibos, NFs, o
+  rateio `nf_empenhos`.
+- **Parte do proprio registro** (`CASCADE`) — `empenhos_itens` e
+  `empenhos_grupos` sao partes do empenho e saem junto com ele. Bloquear a
+  exclusao por causa delas impediria justamente o caso de uso: a NE cadastrada
+  errada, que ja tem itens lancados e nunca foi usada.
+- **`SET NULL` era o perigo.** Apaga o vinculo em silencio, sem erro, deixando
+  o registro orfao. Duas correcoes foram feitas em 10/2026:
+  - `grupos`, `empenhos`, `recibos` e `notas_fiscais` apontavam para
+    `fornecedores` com `SET NULL`: excluir uma empresa em uso teria deixado
+    dezenas de registros sem fornecedor, sem aviso nenhum.
+  - `nf_itens.empenho_id` (a qual NE cada item da NF foi debitado) tambem
+    estava em `SET NULL`. O rateio em `nf_empenhos` ja era `RESTRICT` e cobre
+    o caso normal, mas ha uma janela real: a pessoa escolhe a NE linha a linha
+    e ainda nao clicou em "Debito pelos itens", entao `nf_itens` aponta para a
+    NE sem linha correspondente em `nf_empenhos`. Havia **1 empenho nessa
+    situacao em producao**, de 73 ativos.
+
+  Todas passaram a `RESTRICT`. **Nao reverter sem entender isso**: a tela
+  sozinha nao protege, porque o estado pode mudar entre o carregamento e o
+  clique.
+
+Itens do catalogo sao a excecao deliberada: nao se excluem, usa-se o status
+**Inativo**, porque lancamentos antigos precisam do item preservado.
+
 ## Teto de 1.000 linhas da API (PostgREST)
 
 Consulta sem paginação **corta no teto configurado do PostgREST e não devolve

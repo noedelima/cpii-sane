@@ -82,6 +82,24 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
       o saldo delas é convertido automaticamente ao novo preço.
     </div>
 
+    <h3>Corrigindo um cadastro errado: excluir grupo ou fornecedor</h3>
+    <p>
+      Erro de digitação acontece — um grupo criado sem querer, um fornecedor duplicado. No rodapé do
+      formulário do grupo há <strong>“Excluir grupo”</strong>, e na lista de <strong>Fornecedores</strong>
+      há <strong>“excluir”</strong> em cada linha. Valem para os perfis <strong>SANE e Administração</strong>.
+    </p>
+    <p>
+      A regra é uma só: <strong>só sai o que está vazio</strong>. Ao abrir a tela o sistema conta o que
+      depende daquele cadastro e, havendo qualquer coisa, o botão fica desabilitado com o motivo escrito —
+      <em>“Não é possível excluir: há 45 itens, 3 empenhos e 12 recibos vinculado(s)”</em>. Quando está livre,
+      a tela também diz. A exclusão fica registrada no <strong>log de auditoria</strong>, com autor e hora.
+    </p>
+    <div class="callout dica">
+      <strong>Item cadastrado errado não se exclui — inativa-se.</strong> No item do grupo, use o status
+      <em>Inativo</em>: ele sai das listas de seleção, mas os lançamentos antigos que o citam continuam
+      íntegros. Excluir apagaria histórico de NF e de recibo.
+    </div>
+
     <hr />
 
     <h2>3. Empenhos (NE): cadastro, itens e saldo</h2>
@@ -101,6 +119,16 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
     <div class="callout dica">
       Precisa unir duas NEs lançadas em duplicidade? Na edição, use <strong>“Manutenção da NE → Unificar”</strong>: os
       vínculos e valores são transferidos para a NE de destino e a duplicada é excluída, com trilha nas observações.
+    </div>
+    <p>
+      No mesmo card <strong>Manutenção da NE</strong> fica <strong>“Excluir NE”</strong>, que só funciona para
+      empenho <strong>sem movimento</strong> — ou seja, nenhuma nota fiscal debitada nele. Se houver, o botão
+      aparece desabilitado com a contagem, e o caminho é a <strong>unificação</strong>, que transfere os débitos
+      em vez de perdê-los.
+    </p>
+    <div class="callout atencao">
+      Ao excluir uma NE, os <strong>itens empenhados</strong> e a <strong>alocação por grupo</strong> dela saem
+      junto — são partes da própria NE. O catálogo do grupo e os preços <em>não</em> são afetados.
     </div>
 
     <hr />
@@ -455,6 +483,7 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
     <p><strong>O painel de reforços mostra dezenas de “Prazo vencido”.</strong> Em geral o <em>prazo de tramitação</em> configurado é maior que o real. Ajuste-o em Administração → Configurações e a lista encolhe. Se o prazo estiver certo, a leitura é dura mas verdadeira: aqueles saldos acabam antes de um reforço conseguir tramitar.</p>
     <p><strong>Um item aparece alertando, mas sei que tem estoque de sobra.</strong> Olhe a coluna “Esgota entre”: se vier “a partir de…” com “projeções discordam”, a regressão viu tendência de alta sobre um consumo pequeno. São os casos de menor confiança — confira no Consumo antes de agir.</p>
     <p><strong>Um campus não consegue lançar recibo de determinada data.</strong> A restrição de dias da semana está ativa (seção 14). Você, como SANE, consegue lançar a exceção; ou um admin ajusta os dias marcados.</p>
+    <p><strong>O botão de excluir está apagado e não clica.</strong> É porque há algo vinculado — a própria tela diz o quê e quanto, logo abaixo do botão. Remova ou transfira esses vínculos primeiro (no caso de NE com débitos, unifique em outra). Não há como forçar: o banco recusaria de qualquer forma, para proteger o histórico.</p>
     <p><strong>Para que serve a aba Atas se já existe o Consumo?</strong> O Consumo olha o <em>empenho</em> (quanto resta de NE); as Atas olham o <em>contrato</em> (quanto resta do que foi licitado). Item sem saldo de NE mas com saldo de ata pede reforço; item sem saldo de ata pede nova contratação.</p>
     <p class="glossario">
       <strong>Glossário:</strong> <em>NE</em> = nota de empenho · <em>NF</em> = nota fiscal · <em>CatMat</em> = código do item no grupo ·
@@ -470,6 +499,8 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 :global(.dark) .ajuda-doc { color: rgb(203 213 225); }
 .ajuda-doc h2 { font-size: 1.25rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: rgb(15 23 42); }
 :global(.dark) .ajuda-doc h2 { color: rgb(241 245 249); }
+.ajuda-doc h3 { font-size: 1.05rem; font-weight: 600; margin: 1.25rem 0 0.4rem; color: rgb(30 41 59); }
+:global(.dark) .ajuda-doc h3 { color: rgb(226 232 240); }
 .ajuda-doc p { margin: 0.5rem 0; line-height: 1.6; }
 .ajuda-doc code { background: rgb(241 245 249); padding: 0.05rem 0.3rem; border-radius: 0.25rem; font-size: 0.85em; }
 :global(.dark) .ajuda-doc code { background: rgb(30 41 59); }
