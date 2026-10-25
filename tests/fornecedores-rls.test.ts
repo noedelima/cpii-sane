@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { expect, it } from "vitest";
 
-it("migração libera INSERT para sane/admin, mantém demais perfis bloqueados e DELETE só admin", async () => {
+it("migrações liberam INSERT e, depois, DELETE para a SANE, mantendo os demais perfis bloqueados", async () => {
   const db = new PGlite();
   try {
     const schema = readFileSync("supabase/schema.sql", "utf8");
@@ -33,10 +33,35 @@ it("migração libera INSERT para sane/admin, mantém demais perfis bloqueados e
       if (["sane", "admin"].includes(papel)) expect((await insert).rows).toHaveLength(1);
       else await expect(insert).rejects.toThrow();
     }
+    // Estado apos a migracao de 09/2025: a SANE cadastra, mas nao exclui.
     await db.exec("set test.papel = 'sane';");
     expect((await db.query("delete from fornecedores returning id")).rows).toHaveLength(0);
     await db.exec("set test.papel = 'admin';");
     expect((await db.query("delete from fornecedores returning id")).rows).toHaveLength(2);
+
+    // Secao 36: quem cadastra passa a poder limpar o proprio erro. Sem isso,
+    // um registro digitado errado vira residuo permanente - foi o que
+    // aconteceu com o grupo "ghj", que ficou meses nas listas.
+    await db.exec("reset role;");
+    const mig36 = readFileSync(
+      "supabase/migrations/20261025_exclusao_cadastro_sane.sql",
+      "utf8"
+    );
+    await db.exec(mig36);
+    await db.exec(mig36); // reaplicacao idempotente
+    await db.exec("set role authenticated;");
+
+    await db.exec("set test.papel = 'sane';");
+    await db.query("insert into fornecedores(codigo,razao_social) values ('dig','Digitado errado')");
+    expect((await db.query("delete from fornecedores returning id")).rows).toHaveLength(1);
+
+    // Campus e outros continuam de fora.
+    await db.exec("set test.papel = 'admin';");
+    await db.query("insert into fornecedores(codigo,razao_social) values ('fix','Fixo')");
+    for (const papel of ["campus", "outros"]) {
+      await db.exec(`set test.papel = '${papel}';`);
+      expect((await db.query("delete from fornecedores returning id")).rows).toHaveLength(0);
+    }
   } finally {
     await db.close();
   }

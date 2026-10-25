@@ -2852,3 +2852,25 @@ drop trigger if exists trg_valida_dia_recibo on public.recibos;
 create trigger trg_valida_dia_recibo
   before insert or update of data_recebimento on public.recibos
   for each row execute function public.valida_dia_recibo();
+
+
+-- =====================================================================
+-- 36. Exclusao de grupo e fornecedor tambem pela SANE (antes so admin)
+-- =====================================================================
+-- Erro de digitacao em cadastro acontece: um grupo "ghj" criado em 17/09/2026
+-- ficou meses nas listas, nos seletores e no Dashboard porque nao havia como
+-- remove-lo pela tela. Quem cadastra e a SANE, entao deixar a exclusao so com
+-- o admin resolve metade do problema - a pessoa que errou continua dependendo
+-- de outra para limpar o proprio engano.
+--
+-- O risco esta contido pelo proprio banco: itens, empenhos_grupos, recibos,
+-- notas_fiscais e nf_grupos referenciam grupo com ON DELETE RESTRICT. So
+-- cadastro VAZIO pode ser excluido; com historico, o Postgres recusa,
+-- qualquer que seja o papel de quem tentou.
+drop policy if exists p_grupos_delete on public.grupos;
+create policy p_grupos_delete on public.grupos for delete to authenticated
+  using (public.current_papel() in ('sane', 'admin'));
+
+drop policy if exists p_fornecedores_delete on public.fornecedores;
+create policy p_fornecedores_delete on public.fornecedores for delete to authenticated
+  using (public.current_papel() in ('sane', 'admin'));

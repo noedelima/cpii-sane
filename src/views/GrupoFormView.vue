@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import FornecedorForm from "@/components/FornecedorForm.vue";
 import { fmtMoney } from "@/lib/format";
+import { mensagemErroExclusao, motivoBloqueio, type Dependencia } from "@/lib/exclusao";
 import type { Fornecedor, Grupo, Item } from "@/types/database";
 
 interface LinhaItem extends Item {
@@ -16,6 +17,55 @@ const router = useRouter();
 
 const grupoId = computed(() => (route.params.id ? Number(route.params.id) : null));
 const editMode = computed(() => grupoId.value != null);
+
+// ---- Exclusao do grupo -------------------------------------------------
+// So grupo vazio pode sair. A contagem abaixo serve para a tela explicar o
+// motivo ANTES do clique; quem garante de verdade e o ON DELETE RESTRICT das
+// chaves estrangeiras, que recusa qualquer grupo com historico.
+const deps = ref<Dependencia[] | null>(null);
+const excluindo = ref(false);
+const bloqueio = computed(() => (deps.value ? motivoBloqueio(deps.value) : null));
+
+async function contarDependencias() {
+  if (!grupoId.value) return;
+  const id = grupoId.value;
+  const conta = async (tabela: string, rotulo: string): Promise<Dependencia> => {
+    const { count } = await supabase
+      .from(tabela)
+      .select("id", { count: "exact", head: true })
+      .eq("grupo_id", id);
+    return { rotulo, quantidade: count ?? 0 };
+  };
+  deps.value = await Promise.all([
+    conta("itens", "itens"),
+    conta("empenhos_grupos", "empenhos"),
+    conta("recibos", "recibos"),
+    conta("notas_fiscais", "notas fiscais"),
+    conta("nf_grupos", "NFs de vários grupos"),
+    conta("solicitacoes_nf", "solicitações de NF"),
+  ]);
+}
+
+async function excluirGrupo() {
+  if (!grupoId.value || bloqueio.value) return;
+  if (
+    !confirm(
+      `Excluir o grupo "${nome.value}"?\n\n` +
+        "O cadastro está vazio e some definitivamente das listas. A ação fica registrada no log de auditoria."
+    )
+  )
+    return;
+  excluindo.value = true;
+  error.value = null;
+  const { error: err } = await supabase.from("grupos").delete().eq("id", grupoId.value);
+  excluindo.value = false;
+  if (err) {
+    error.value = mensagemErroExclusao(err);
+    await contarDependencias(); // a situacao pode ter mudado
+    return;
+  }
+  router.push("/grupos");
+}
 
 const fornecedores = ref<Fornecedor[]>([]);
 const criandoFornecedor = ref(false);
@@ -349,6 +399,7 @@ async function salvarItem(l: LinhaItem) {
 onMounted(async () => {
   await loadRefs();
   await loadGrupo();
+  await contarDependencias();
 });
 </script>
 
@@ -437,7 +488,28 @@ onMounted(async () => {
             </div>
           </div>
         </div>
-        <div class="flex justify-end gap-2">
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <!-- Exclusão à esquerda e discreta: ação rara, longe do Salvar. -->
+          <div v-if="editMode" class="mr-auto">
+            <button
+              type="button"
+              class="rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+              :class="bloqueio || deps === null
+                ? 'cursor-not-allowed text-slate-400 dark:text-slate-600'
+                : 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40'"
+              :disabled="!!bloqueio || deps === null || excluindo"
+              :title="bloqueio ?? undefined"
+              @click="excluirGrupo"
+            >
+              {{ excluindo ? "Excluindo…" : "Excluir grupo" }}
+            </button>
+            <p v-if="bloqueio" class="mt-1 max-w-md text-xs text-slate-500 dark:text-slate-400">
+              {{ bloqueio }}
+            </p>
+            <p v-else-if="deps" class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Este grupo está vazio e pode ser removido.
+            </p>
+          </div>
           <button @click="router.push('/grupos')" type="button" class="btn-ghost">Voltar</button>
           <button @click="salvarGrupo" :disabled="saving || criandoFornecedor" type="button" class="btn-primary">
             {{ saving ? "Salvando…" : editMode ? "Salvar grupo" : "Criar grupo e cadastrar itens" }}
