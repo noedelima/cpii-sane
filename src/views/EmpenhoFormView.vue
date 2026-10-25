@@ -8,6 +8,7 @@ import PdfUpload from "@/components/PdfUpload.vue";
 import { carregarLogo } from "@/lib/pdf-ateste";
 import { montarPdfEmpenhoSaldos } from "@/lib/pdf-empenho-saldos";
 import { getCabecalho } from "@/lib/config";
+import { mensagemErroExclusao, motivoBloqueio, type Dependencia } from "@/lib/exclusao";
 import { msgErro } from "@/lib/erro";
 import type { Empenho, Fornecedor, Grupo, Item, VwEmpenhoItemSaldo } from "@/types/database";
 
@@ -167,16 +168,22 @@ async function addEmpItem() {
 }
 
 async function excluirEmpenho() {
-  if (!empenhoId.value) return;
-  if (!confirm(`Excluir a NE ${numero.value}?\n\nEsta ação não pode ser desfeita.`)) return;
+  if (!empenhoId.value || bloqueioNe.value) return;
+  if (
+    !confirm(
+      `Excluir a NE ${numero.value}?\n\n` +
+        "Nenhuma nota fiscal foi debitada nela. Os itens e a alocação por grupo desta NE " +
+        "saem junto. A ação fica registrada no log de auditoria e não pode ser desfeita."
+    )
+  )
+    return;
   excluindo.value = true;
   error.value = null;
   const { error: err } = await supabase.from("empenhos").delete().eq("id", empenhoId.value);
   excluindo.value = false;
   if (err) {
-    error.value = err.message.includes("nf_empenhos")
-      ? "Esta NE tem débitos de notas fiscais vinculados. Transfira-os (unificação) ou remova os débitos nas NFs antes de excluir."
-      : err.message;
+    error.value = mensagemErroExclusao(err);
+    await contarDependenciasNe(); // a situacao pode ter mudado
     return;
   }
   router.push("/empenhos");
@@ -489,9 +496,39 @@ async function gerarPdfSaldos() {
   }
 }
 
+// ---- Bloqueio da exclusao do empenho -----------------------------------
+// A tela ja tinha o botao "Excluir NE", mas sem aviso previo: a pessoa so
+// descobria o impedimento ao clicar e receber o erro cru do banco. Agora a
+// contagem roda ao abrir e o botao explica o motivo antes.
+//
+// "Movimento" e o que liga a NE a uma nota fiscal: o rateio (nf_empenhos) e o
+// item de NF debitado nela (nf_itens). Os itens e a alocacao por grupo da
+// propria NE NAO entram na conta - sao partes dela e saem junto, por CASCADE.
+// Bloquear por causa deles impediria justamente o caso de uso: a NE cadastrada
+// errada, que ja tem itens lancados e nunca foi usada.
+const depsNe = ref<Dependencia[] | null>(null);
+const bloqueioNe = computed(() => (depsNe.value ? motivoBloqueio(depsNe.value) : null));
+
+async function contarDependenciasNe() {
+  if (!empenhoId.value) return;
+  const id = empenhoId.value;
+  const conta = async (tabela: string, rotulo: string): Promise<Dependencia> => {
+    const { count } = await supabase
+      .from(tabela)
+      .select("id", { count: "exact", head: true })
+      .eq("empenho_id", id);
+    return { rotulo, quantidade: count ?? 0 };
+  };
+  depsNe.value = await Promise.all([
+    conta("nf_empenhos", "débitos de NF"),
+    conta("nf_itens", "itens de NF"),
+  ]);
+}
+
 onMounted(async () => {
   await loadRefs();
   await loadEmpenho();
+  await contarDependenciasNe();
 });
 </script>
 
@@ -785,15 +822,26 @@ onMounted(async () => {
           <div class="sm:col-span-2">
             <button
               type="button"
-              class="btn w-full bg-red-600 text-white hover:bg-red-700"
-              :disabled="excluindo"
+              class="btn w-full"
+              :class="bloqueioNe || depsNe === null
+                ? 'cursor-not-allowed bg-slate-200 text-slate-400 dark:bg-slate-700 dark:text-slate-500'
+                : 'bg-red-600 text-white hover:bg-red-700'"
+              :disabled="!!bloqueioNe || depsNe === null || excluindo"
+              :title="bloqueioNe ?? undefined"
               @click="excluirEmpenho"
             >{{ excluindo ? "Excluindo…" : "Excluir NE" }}</button>
           </div>
         </div>
-        <p class="text-xs text-slate-500 dark:text-slate-400">
-          A exclusão é bloqueada se houver débitos de NFs vinculados — nesse caso,
-          unifique em outra NE ou remova os débitos primeiro.
+        <p v-if="bloqueioNe" class="text-xs text-slate-500 dark:text-slate-400">
+          {{ bloqueioNe }} Para liberar, <strong>unifique</strong> esta NE em outra pelo campo
+          acima — os débitos são transferidos — ou remova os débitos nas próprias NFs.
+        </p>
+        <p v-else-if="depsNe" class="text-xs text-slate-500 dark:text-slate-400">
+          Nenhuma nota fiscal foi debitada nesta NE, então ela pode ser excluída. Os itens e a
+          alocação por grupo desta NE saem junto; o catálogo do grupo não é afetado.
+        </p>
+        <p v-else class="text-xs text-slate-500 dark:text-slate-400">
+          Verificando se há notas fiscais debitadas nesta NE…
         </p>
       </div>
 

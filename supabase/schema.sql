@@ -2903,3 +2903,28 @@ alter table public.notas_fiscais
   drop constraint if exists notas_fiscais_fornecedor_id_fkey,
   add constraint notas_fiscais_fornecedor_id_fkey
     foreign key (fornecedor_id) references public.fornecedores(id) on delete restrict;
+
+
+-- =====================================================================
+-- 37. Exclusao de empenho sem movimento
+-- =====================================================================
+-- nf_itens.empenho_id guarda a QUAL NE cada item da nota fiscal foi debitado
+-- (o caminho do "Debito pelos itens"). Estava em ON DELETE SET NULL: excluir a
+-- NE apagava esse vinculo em silencio, deixando itens de NF orfaos.
+--
+-- O rateio em nf_empenhos ja era RESTRICT, o que cobre o caso normal, mas nao
+-- todos. Ha uma janela real: a pessoa escolhe a NE linha a linha e ainda nao
+-- clicou em "Debito pelos itens", entao nf_itens aponta para a NE sem linha
+-- correspondente em nf_empenhos. Em 25/10/2026 havia exatamente 1 empenho
+-- nessa situacao em producao, de 73 ativos.
+--
+-- empenhos_itens e empenhos_grupos seguem em CASCADE de proposito: sao partes
+-- do proprio empenho e saem junto com ele.
+alter table public.nf_itens
+  drop constraint if exists nf_itens_empenho_id_fkey,
+  add constraint nf_itens_empenho_id_fkey
+    foreign key (empenho_id) references public.empenhos(id) on delete restrict;
+
+drop policy if exists p_empenhos_delete on public.empenhos;
+create policy p_empenhos_delete on public.empenhos for delete to authenticated
+  using (public.current_papel() in ('sane', 'admin'));
