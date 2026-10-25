@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import FornecedorForm from "@/components/FornecedorForm.vue";
 import { fmtMoney } from "@/lib/format";
 import { mensagemErroExclusao, motivoBloqueio, type Dependencia } from "@/lib/exclusao";
+import { avisoNumeroGrupo, conflitosDeNumero, type GrupoNumerado } from "@/lib/grupos";
 import type { Fornecedor, Grupo, Item } from "@/types/database";
 
 interface LinhaItem extends Item {
@@ -235,13 +236,33 @@ const itensFiltrados = computed(() => {
 });
 
 async function loadRefs() {
-  const { data } = await supabase
-    .from("fornecedores")
-    .select("*")
-    .eq("status", "ativo")
-    .order("codigo");
-  fornecedores.value = (data as Fornecedor[] | null) ?? [];
+  const [f, g] = await Promise.all([
+    supabase.from("fornecedores").select("*").eq("status", "ativo").order("codigo"),
+    supabase.from("grupos").select("id, nome, numero_romano, numero_arabico").order("numero_arabico"),
+  ]);
+  fornecedores.value = (f.data as Fornecedor[] | null) ?? [];
+  outrosGrupos.value = (g.data as GrupoNumerado[] | null) ?? [];
 }
+
+// Aviso (nao bloqueio) de numeracao repetida. O numero ordena o grupo em quase
+// toda tela, entao repetir faz dois grupos sentarem lado a lado como se fossem
+// o mesmo - foi assim que o cadastro de teste "ghj", numerado I/1, passou
+// meses colado no Grupo I. Repetir, porem, e legitimo: o Grupo III existe duas
+// vezes (NARDELLI e RJB), contratos diferentes da mesma categoria. Por isso so
+// se avisa.
+const outrosGrupos = ref<GrupoNumerado[]>([]);
+const avisoNumero = computed(() =>
+  avisoNumeroGrupo(
+    conflitosDeNumero(
+      {
+        id: grupoId.value,
+        numero_romano: numeroRomano.value,
+        numero_arabico: numeroArabico.value,
+      },
+      outrosGrupos.value
+    )
+  )
+);
 
 /** Reflete o CNPJ do fornecedor selecionado no campo (editável e persistido nele). */
 function syncCnpjFromFornecedor() {
@@ -430,6 +451,13 @@ onMounted(async () => {
               <input v-model="numeroRomano" type="text" class="input" />
             </div>
           </div>
+          <p
+            v-if="avisoNumero"
+            class="-mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800
+                   dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+          >
+            {{ avisoNumero }}
+          </p>
           <div>
             <label class="label">Categoria</label>
             <input v-model="categoria" type="text" class="input" placeholder="Hortifruti, Carnes, Estocáveis…" />

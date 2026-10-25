@@ -6,8 +6,16 @@ import FornecedorForm from "../src/components/FornecedorForm.vue";
 
 vi.mock("vue-router", () => ({ useRoute: () => ({ params: {} }), useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/stores/auth", () => ({ useAuthStore: () => ({ isSane: true }) }));
+// O mock precisa aceitar as duas formas usadas em loadRefs: com e sem .eq()
+// antes do .order() — fornecedores filtra por status, grupos nao.
+const vazio = { data: [], error: null };
 vi.mock("@/lib/supabase", () => ({ supabase: {
-  from: () => ({ select: () => ({ eq: () => ({ order: async () => ({ data: [], error: null }) }) }) }),
+  from: () => ({
+    select: () => ({
+      eq: () => ({ order: async () => vazio }),
+      order: async () => vazio,
+    }),
+  }),
 } }));
 
 it("seleciona o fornecedor criado sem perder o nome do grupo em preenchimento", async () => {
