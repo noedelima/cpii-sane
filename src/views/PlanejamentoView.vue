@@ -343,13 +343,13 @@ onMounted(loadGrupos);
           <table class="w-full text-sm">
             <thead class="text-xs text-slate-500 dark:text-slate-400 uppercase">
               <tr>
-                <th class="text-left py-2">Item</th>
-                <th class="text-left py-2 pl-2">Un.</th>
-                <th class="text-right py-2">Saldo (NE)</th>
-                <th class="text-right py-2">Em trânsito</th>
-                <th class="text-right py-2">Disponível</th>
-                <th class="text-right py-2">Quero pedir</th>
-                <th class="text-right py-2">Saldo final</th>
+                <th class="text-left py-2 pr-3">Item</th>
+                <th class="text-left py-2 px-2">Un.</th>
+                <th class="text-right py-2 px-3 whitespace-nowrap">Saldo (NE)</th>
+                <th class="text-right py-2 px-3 whitespace-nowrap">Em trânsito</th>
+                <th class="text-right py-2 px-3 whitespace-nowrap">Disponível</th>
+                <th class="text-right py-2 px-3 whitespace-nowrap">Quero pedir</th>
+                <th class="text-right py-2 pl-3 whitespace-nowrap">Saldo final</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -364,12 +364,12 @@ onMounted(loadGrupos);
                     · {{ l.codigo_catmat }}
                   </span>
                 </td>
-                <td class="py-2 pl-2 text-slate-500 dark:text-slate-400">{{ l.unidade }}</td>
-                <td class="py-2 text-right tabular-nums">
+                <td class="py-2 px-2 text-slate-500 dark:text-slate-400">{{ l.unidade }}</td>
+                <td class="py-2 px-3 text-right tabular-nums whitespace-nowrap">
                   <span v-if="l.temEmpenho">{{ fmtQtd(l.saldo) }}</span>
                   <span v-else class="text-slate-400 dark:text-slate-500">sem NE</span>
                 </td>
-                <td class="py-2 text-right w-28">
+                <td class="py-2 px-3 text-right w-32">
                   <input
                     v-model.number="l.transito"
                     type="number"
@@ -381,10 +381,10 @@ onMounted(loadGrupos);
                       : ''"
                   />
                 </td>
-                <td class="py-2 text-right tabular-nums">
+                <td class="py-2 px-3 text-right tabular-nums whitespace-nowrap">
                   {{ fmtQtd(resultados[idx].disponivel) }}
                 </td>
-                <td class="py-2 text-right w-28">
+                <td class="py-2 px-3 text-right w-32">
                   <input
                     v-model.number="l.planejado"
                     type="number"
@@ -393,7 +393,7 @@ onMounted(loadGrupos);
                     class="input py-1 text-right tabular-nums"
                   />
                 </td>
-                <td class="py-2 text-right tabular-nums" :class="corDaSituacao(resultados[idx].situacao)">
+                <td class="py-2 pl-3 text-right tabular-nums whitespace-nowrap" :class="corDaSituacao(resultados[idx].situacao)">
                   {{ fmtQtd(resultados[idx].saldoFinal) }}
                 </td>
               </tr>
