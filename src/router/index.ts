@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from "vue-router";
+import { deveRecarregar } from "@/lib/recarga";
 import { useAuthStore } from "@/stores/auth";
 import type { Papel } from "@/types/database";
 
@@ -167,6 +168,50 @@ export const router = createRouter({
   history: createWebHashHistory(),
   routes,
 });
+
+/**
+ * Deploy novo troca os nomes dos chunks. Quem estava com o Portal aberto pede
+ * um arquivo que nao existe mais e ve a tela em branco (ver src/lib/recarga.ts).
+ * Recarregar uma vez, na rota que o usuario pediu, resolve.
+ */
+const MARCA_RECARGA = "sane-recarga-chunk";
+
+const marca = {
+  // sessionStorage pode lancar em modo restrito: a recuperacao nao pode
+  // depender disso para nao trocar a tela em branco por um erro pior.
+  lida: () => {
+    try {
+      return sessionStorage.getItem(MARCA_RECARGA) === "1";
+    } catch {
+      return false;
+    }
+  },
+  grava: () => {
+    try {
+      sessionStorage.setItem(MARCA_RECARGA, "1");
+    } catch {
+      /* sem trava disponivel: segue sem ela */
+    }
+  },
+  limpa: () => {
+    try {
+      sessionStorage.removeItem(MARCA_RECARGA);
+    } catch {
+      /* idem */
+    }
+  },
+};
+
+router.onError((erro, to) => {
+  if (!deveRecarregar(erro, marca.lida())) return;
+  marca.grava();
+  window.location.hash = `#${to.fullPath}`;
+  window.location.reload();
+});
+
+// Navegacao que deu certo libera a trava: a proxima troca de versao pode
+// recarregar de novo.
+router.afterEach(() => marca.limpa());
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
