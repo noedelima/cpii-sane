@@ -31,6 +31,16 @@ export function fmtEntrega(
   return fmtDate(a);
 }
 
+/**
+ * Quantidade fisica: ate 3 casas, sem zeros a direita inuteis.
+ * 862 -> "862" | 12.5 -> "12,5" | 1234.567 -> "1.234,567"
+ */
+export function fmtQtd(v: number | string | null | undefined): string {
+  const n = typeof v === "string" ? Number(v) : v ?? 0;
+  if (!Number.isFinite(n as number)) return "0";
+  return (n as number).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+}
+
 export function fmtPct(v: number | null | undefined, digits = 1): string {
   return `${((v ?? 0) * 100).toFixed(digits).replace(".", ",")}%`;
 }
