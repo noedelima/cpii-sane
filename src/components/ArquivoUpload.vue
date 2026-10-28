@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { supabase } from "@/lib/supabase";
+import { getLimiteUploadMb } from "@/lib/config";
 import {
   accept,
   contentTypeDe,
   ehImagem,
   formatoDoCaminho,
+  LIMITE_PADRAO_MB,
   sanitizarNome,
   validarArquivo,
 } from "@/lib/arquivos";
@@ -30,6 +32,12 @@ const emit = defineEmits<{ (e: "update:modelValue", v: string | null): void }>()
 const uploading = ref(false);
 const error = ref<string | null>(null);
 const signedUrl = ref<string | null>(null);
+/** Limite global definido pelo admin; o cache do config evita ida ao banco. */
+const limiteMb = ref(LIMITE_PADRAO_MB);
+
+onMounted(async () => {
+  limiteMb.value = await getLimiteUploadMb();
+});
 
 const isLegacyUrl = (v: string | null) => !!v && /^https?:\/\//i.test(v);
 
@@ -59,7 +67,7 @@ async function onFile(ev: Event) {
   const file = input.files?.[0];
   input.value = "";
   if (!file) return;
-  const invalido = validarArquivo(file, !!props.imagens);
+  const invalido = validarArquivo(file, !!props.imagens, limiteMb.value);
   if (invalido) {
     error.value = invalido;
     return;
@@ -144,7 +152,7 @@ function remover() {
       />
     </label>
     <p v-if="!modelValue && !disabled && imagens" class="text-xs text-slate-500 dark:text-slate-400 mt-1">
-      PDF, JPG ou PNG (até 10 MB).
+      PDF, JPG ou PNG (até {{ limiteMb }} MB).
     </p>
 
     <p v-if="error" class="text-xs text-red-600 dark:text-red-400 mt-1">{{ error }}</p>

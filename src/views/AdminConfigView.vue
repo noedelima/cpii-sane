@@ -9,10 +9,12 @@ import {
   semRestricao,
   serializarDiasSemana,
 } from "@/lib/dias-semana";
+import { limiteMbValido, TETO_UPLOAD_MB } from "@/lib/arquivos";
 import type { Configuracao } from "@/types/database";
 
-/** Chave que ganha editor proprio (caixas de selecao) em vez de texto cru. */
+/** Chaves que ganham editor proprio em vez de campo de texto cru. */
 const CHAVE_DIAS = "recibo_dias_semana";
+const CHAVE_UPLOAD = "upload_tamanho_max_mb";
 
 interface Linha extends Configuracao {
   _saving?: boolean;
@@ -36,6 +38,9 @@ async function load() {
 }
 
 async function salvar(l: Linha) {
+  // Normaliza antes de gravar: o gatilho no banco tambem corta no teto, mas o
+  // admin precisa ver na tela o valor que de fato vai valer.
+  if (l.chave === CHAVE_UPLOAD) l.valor = String(limiteMbValido(l.valor));
   l._saving = true;
   error.value = null;
   const { error: err } = await supabase
@@ -118,6 +123,29 @@ onMounted(load);
           <button class="btn-secondary" :disabled="l._saving" @click="salvar(l)">
             {{ l._saving ? "Salvando…" : l._savedAt ? "Salvo ✓" : "Salvar" }}
           </button>
+        </template>
+
+        <!-- Limite de upload: numero em MB, com teto e aviso do efeito -->
+        <template v-else-if="l.chave === CHAVE_UPLOAD">
+          <div class="flex flex-wrap gap-2 items-center">
+            <input
+              v-model="l.valor"
+              type="number"
+              min="1"
+              :max="TETO_UPLOAD_MB"
+              step="1"
+              class="input w-28 text-right tabular-nums"
+            />
+            <span class="text-sm text-slate-500 dark:text-slate-400">MB por arquivo</span>
+            <button class="btn-secondary shrink-0" :disabled="l._saving" @click="salvar(l)">
+              {{ l._saving ? "Salvando…" : l._savedAt ? "Salvo ✓" : "Salvar" }}
+            </button>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">
+            Vale para todos os anexos (recibos, notas de empenho, notas fiscais e instrumento
+            de cobrança) e é aplicado <strong>no servidor</strong>, não só na tela. Mínimo 1 MB,
+            máximo {{ TETO_UPLOAD_MB }} MB — valores fora da faixa são ajustados ao limite.
+          </p>
         </template>
 
         <div v-else class="flex flex-wrap gap-2 items-center">

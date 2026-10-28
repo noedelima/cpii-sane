@@ -1,6 +1,7 @@
 // Configurações globais (tabela public.configuracoes), com cache em memória.
 // Usado pela aba de Configurações (admin) e pelos geradores de PDF.
 import { supabase } from "@/lib/supabase";
+import { limiteMbValido } from "@/lib/arquivos";
 import { parseDiasSemana } from "@/lib/dias-semana";
 import type { Configuracao } from "@/types/database";
 
@@ -67,4 +68,15 @@ export async function getPrazoReforcoDias(): Promise<number> {
   const m = await carregarConfig();
   const n = Number(pick(m, "reforco_prazo_dias", "45"));
   return Number.isFinite(n) && n > 0 ? Math.round(n) : 45;
+}
+
+/**
+ * Tamanho maximo de um arquivo anexado, em MB.
+ * A tela usa isto para avisar antes do upload; quem bloqueia de verdade e o
+ * file_size_limit dos buckets, que o gatilho no banco mantem sincronizado com
+ * esta mesma configuracao.
+ */
+export async function getLimiteUploadMb(): Promise<number> {
+  const m = await carregarConfig();
+  return limiteMbValido(m.get("upload_tamanho_max_mb"));
 }

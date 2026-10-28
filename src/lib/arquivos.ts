@@ -17,8 +17,27 @@ export type Formato = "pdf" | "jpeg" | "png";
 export const TIPO_PDF = "application/pdf";
 export const TIPOS_IMAGEM = ["image/jpeg", "image/png"] as const;
 
-/** Limite por arquivo (o mesmo aplicado nos buckets do Storage). */
-export const LIMITE_BYTES = 10 * 1024 * 1024;
+/** Limite por arquivo, em MB, quando a configuracao global nao diz outra coisa. */
+export const LIMITE_PADRAO_MB = 10;
+
+/**
+ * Teto absoluto do limite configuravel, em MB. Existe para que um erro de
+ * digitacao na tela de Configuracoes (300 em vez de 30) nao transforme os
+ * buckets em deposito de arquivo grande: o gatilho no banco corta no teto.
+ */
+export const TETO_UPLOAD_MB = 25;
+
+/** Limite padrao em bytes. */
+export const LIMITE_BYTES = LIMITE_PADRAO_MB * 1024 * 1024;
+
+/** Normaliza o valor configurado: inteiro, dentro de 1..TETO, com fallback. */
+export function limiteMbValido(valor: unknown): number {
+  const n = Number(valor);
+  if (!Number.isFinite(n) || n <= 0) return LIMITE_PADRAO_MB;
+  return Math.min(Math.max(Math.round(n), 1), TETO_UPLOAD_MB);
+}
+
+export const mbParaBytes = (mb: number) => mb * 1024 * 1024;
 
 const POR_TIPO: Record<string, Formato> = {
   "application/pdf": "pdf",
@@ -85,7 +104,12 @@ export interface ArquivoEscolhido {
  * Valida o arquivo escolhido. Devolve a mensagem de erro, ou null se esta ok.
  * Aceita pelo MIME ou pela extensao: celulares as vezes entregam type vazio.
  */
-export function validarArquivo(file: ArquivoEscolhido, imagens: boolean): string | null {
+export function validarArquivo(
+  file: ArquivoEscolhido,
+  imagens: boolean,
+  limiteMb: number = LIMITE_PADRAO_MB
+): string | null {
+  const limite = mbParaBytes(limiteMbValido(limiteMb));
   const formato = formatoDoTipo(file.type) ?? formatoDoCaminho(file.name);
   if (!formato) {
     return imagens
@@ -95,8 +119,8 @@ export function validarArquivo(file: ArquivoEscolhido, imagens: boolean): string
   if (!imagens && formato !== "pdf") {
     return "Este campo aceita somente PDF.";
   }
-  if (file.size > LIMITE_BYTES) {
-    return `Arquivo acima de ${Math.round(LIMITE_BYTES / 1024 / 1024)} MB.`;
+  if (file.size > limite) {
+    return `Arquivo acima de ${limiteMbValido(limiteMb)} MB, o limite definido pela administração.`;
   }
   if (file.size === 0) {
     return "Arquivo vazio.";

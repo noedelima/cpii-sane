@@ -286,8 +286,9 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 
     <h2>8. Anexar arquivos ao recibo</h2>
     <p>
-      Use <strong>“Anexar arquivo”</strong> para subir o documento físico digitalizado (até 10 MB). São aceitos
-      <strong>PDF, JPG e PNG</strong> — dá para fotografar o recibo com o celular. Depois de anexado, aparece o
+      Use <strong>“Anexar arquivo”</strong> para subir o documento físico digitalizado. São aceitos
+      <strong>PDF, JPG e PNG</strong>, dentro do tamanho máximo que a própria tela informa (definido pela
+      administração) — dá para fotografar o recibo com o celular. Depois de anexado, aparece o
       link para abrir (e a miniatura, se for imagem). Isso ajuda a SANE na conferência e mantém o comprovante
       junto ao registro.
     </p>

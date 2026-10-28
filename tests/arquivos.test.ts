@@ -7,7 +7,11 @@ import {
   formatoDoCaminho,
   formatoDoTipo,
   LIMITE_BYTES,
+  LIMITE_PADRAO_MB,
+  limiteMbValido,
+  mbParaBytes,
   sanitizarNome,
+  TETO_UPLOAD_MB,
   validarArquivo,
 } from "../src/lib/arquivos";
 
@@ -114,6 +118,56 @@ describe("validarArquivo", () => {
 
   it("aceita exatamente no limite", () => {
     expect(validarArquivo(arq({ size: LIMITE_BYTES }), true)).toBeNull();
+  });
+
+  it("respeita o limite configurado pelo admin", () => {
+    const doisMb = mbParaBytes(2);
+    expect(validarArquivo(arq({ size: doisMb + 1 }), true, 2)).toMatch(/2 MB/);
+    expect(validarArquivo(arq({ size: doisMb }), true, 2)).toBeNull();
+    // o mesmo arquivo passa com um limite maior
+    expect(validarArquivo(arq({ size: doisMb + 1 }), true, 5)).toBeNull();
+  });
+
+  it("usa o limite ja normalizado na mensagem, nao o valor cru", () => {
+    // 300 estoura o teto: a mensagem tem de falar do teto que vale
+    expect(validarArquivo(arq({ size: mbParaBytes(300) }), true, 300)).toMatch(
+      new RegExp(`${TETO_UPLOAD_MB} MB`)
+    );
+  });
+});
+
+describe("limiteMbValido", () => {
+  it("mantem valores dentro da faixa", () => {
+    expect(limiteMbValido(1)).toBe(1);
+    expect(limiteMbValido(15)).toBe(15);
+    expect(limiteMbValido(TETO_UPLOAD_MB)).toBe(TETO_UPLOAD_MB);
+  });
+
+  it("corta no teto, para um zero a mais nao virar deposito de arquivo grande", () => {
+    expect(limiteMbValido(300)).toBe(TETO_UPLOAD_MB);
+  });
+
+  it("nunca devolve zero ou negativo", () => {
+    expect(limiteMbValido(0)).toBe(LIMITE_PADRAO_MB);
+    expect(limiteMbValido(-5)).toBe(LIMITE_PADRAO_MB);
+  });
+
+  it("cai no padrao quando a configuracao esta vazia ou invalida", () => {
+    // o caso que ja mordeu antes: Number("") e 0, nao NaN
+    expect(limiteMbValido("")).toBe(LIMITE_PADRAO_MB);
+    expect(limiteMbValido(undefined)).toBe(LIMITE_PADRAO_MB);
+    expect(limiteMbValido(null)).toBe(LIMITE_PADRAO_MB);
+    expect(limiteMbValido("dez")).toBe(LIMITE_PADRAO_MB);
+  });
+
+  it("aceita o valor como texto, que e como ele vem do banco", () => {
+    expect(limiteMbValido("8")).toBe(8);
+    expect(limiteMbValido(" 8 ")).toBe(8);
+  });
+
+  it("arredonda fracao", () => {
+    expect(limiteMbValido(7.4)).toBe(7);
+    expect(limiteMbValido(7.6)).toBe(8);
   });
 });
 

@@ -20,6 +20,10 @@ on conflict (id) do nothing;
 -- Documentos oficiais (NE, NF, instrumento de cobranca) seguem so em PDF.
 -- UPDATE explicito: o "on conflict do nothing" acima nao altera bucket que ja
 -- existe, e todos ja existem em producao.
+--
+-- O file_size_limit abaixo e so o valor inicial: a partir da migracao
+-- 20261028_upload_limite.sql quem manda e a configuracao global
+-- upload_tamanho_max_mb, que um gatilho replica para estes buckets.
 update storage.buckets
    set allowed_mime_types = array['application/pdf', 'image/jpeg', 'image/png'],
        file_size_limit    = 10485760
