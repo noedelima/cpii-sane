@@ -100,6 +100,62 @@ por greve; (2) consolidar por **item+empenho** — um item zerado numa NE costum
 ter saldo em outra, e isso gerava centenas de alertas falsos. A unidade de
 análise é o **item**, somando os empenhos ativos.
 
+## Saldo desconta o faturado, não o entregue — e a diferença é grande
+
+`vw_empenho_item_saldo` calcula **empenhado − consumido**, e "consumido" vem de
+`nf_itens`: só entra no saldo o que já virou **nota fiscal**. Entre a entrega
+(recibo) e o lançamento da NF existe uma janela, e nela o saldo aparece **maior
+do que é** — exatamente quando a fiscalização consulta para decidir se envia o
+pedido da semana.
+
+Medição em produção (28/10/2026), sobre 1.739 recibos dos últimos 180 dias que
+já tinham NF, comparando a data do recibo com a data de lançamento da NF:
+
+| mediana | média | p90 | máximo |
+|---|---|---|---|
+| 21 dias | 22 | 42 | 54 |
+
+No recorte de 60 dias, a quantidade entregue e ainda não faturada equivalia, em
+média, a **66,6% do saldo exibido** dos itens afetados (135 de 159 itens com
+saldo; 6 passariam a zero ou negativo). Daí a view `vw_item_transito` e a coluna
+**Em trânsito** do Planejamento de pedidos.
+
+**A janela existe por um motivo, não por cautela.** Um indicador ingênuo —
+"recibo sem NF vinculada" — mistura duas coisas opostas:
+
+1. entrega ainda não faturada: **não** está no saldo, e deve ser descontada;
+2. entrega faturada cujo **vínculo** recibo⇄NF não foi registrado: **já** está
+   descontada, e somá-la desconta duas vezes.
+
+Até meados de 2026 a correspondência era feita manualmente e muitos vínculos do
+caso (2) ficaram sem registro — 444 recibos sem vínculo, dos quais 134
+anteriores a setembro. A SANE confirmou que esses já estão debitados. A janela
+de `transito_janela_dias` (padrão 60, calibrada pelo p90) separa um caso do
+outro. **Não troque a janela por "todos os recibos sem NF"** sem antes checar se
+o passivo histórico de vínculo foi resolvido.
+
+Confirmação independente de que o caso (2) é real: no acumulado, a quantidade em
+`nf_itens` (300.264) supera a de `recibos_itens` (215.923) em **39%** — há muito
+mais consumo faturado do que recibos registrados, então resíduo acumulado não
+mede nada.
+
+## Colagem da planilha de pedidos é posicional por falta de chave
+
+As planilhas de pedido dos campi têm uma linha por item e uma coluna por campus,
+com o total numa fórmula ao fim. **Não trazem o CatMat**, que é o indexador do
+item dentro do grupo. Sem chave, o encaixe das quantidades coladas só pode ser
+**pela ordem** — e a falha, se a ordem divergir, é silenciosa: quantidades
+plausíveis nos itens errados, sem nada que acuse.
+
+Por isso `src/lib/planejamento.ts` separa `lerColagem` de `conferir`, e a tela
+**obriga uma pré-visualização item←quantidade antes de aplicar**. Se as planilhas
+ganharem uma coluna de CatMat, casar por ela passa a ser possível e dispensa a
+conferência — é o caminho preferido.
+
+A colagem aceita tanto uma coluna (o total) quanto o bloco das colunas dos campi,
+somando cada linha, porque na planilha o total é fórmula e copiá-lo depende de o
+usuário selecionar a coluna certa.
+
 ## Exclusao de cadastro: so o que esta vazio, e em tres camadas
 
 Erro de digitacao em cadastro acontece. Sem exclusao pela tela o registro vira

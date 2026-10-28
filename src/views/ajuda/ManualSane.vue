@@ -28,6 +28,7 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
         <li>Atas: execução do contrato por item</li>
         <li>Consumo por empenho e estimativa de reforço</li>
         <li>Reforços previstos: o painel do Dashboard</li>
+        <li>Planejamento de pedidos: conferir o saldo antes de enviar</li>
         <li>Notificações: faltas e devoluções dos campi</li>
         <li>Administração: usuários, log e configurações</li>
         <li>Perguntas frequentes e glossário</li>
@@ -392,7 +393,43 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 
     <hr />
 
-    <h2>13. Notificações: faltas e devoluções dos campi</h2>
+    <h2>13. Planejamento de pedidos: conferir o saldo antes de enviar</h2>
+    <p>
+      Em <strong>Análise › Planejamento</strong>. Escolha o grupo, informe quanto pretende pedir de cada item e
+      veja na hora se há saldo. A tela é <strong>somente consultiva</strong>: não grava nada e não desconta saldo
+      de empenho nenhum.
+    </p>
+    <p>
+      Para não digitar item por item, use <strong>Colar da planilha de pedidos</strong>. Copie no Excel a coluna de
+      quantidade total <em>ou</em> o bloco inteiro das colunas dos campi — neste caso o sistema soma cada linha — e
+      cole no campo. Como a planilha não traz o CatMat, o encaixe é <strong>pela ordem dos itens</strong>: por isso
+      aparece uma pré-visualização “item ← quantidade” que você confere antes de aplicar.
+    </p>
+    <div class="callout atencao">
+      Confira a pré-visualização de verdade. Se a ordem da planilha não for a mesma da tela, as quantidades caem
+      nos itens errados e <strong>nada acusa o erro</strong> — os números continuam plausíveis e a conta fecha.
+    </div>
+    <p>
+      A coluna <strong>Em trânsito</strong> é o que faz a conta fechar com a realidade. O saldo da NE desconta o que
+      foi <em>faturado</em>, não o que foi <em>entregue</em>, e entre uma coisa e outra há cerca de três semanas
+      (medição em produção: a NF costuma ser lançada 21 dias depois do recibo). Sem essa correção, o saldo aparece
+      maior do que é justamente na hora de decidir o pedido. O sistema preenche a coluna com os recibos ainda sem NF
+      do período configurado, e <strong>você pode corrigir o número</strong> quando souber que está errado —
+      a tela destaca o campo ajustado.
+    </p>
+    <div class="callout dica">
+      Se o trânsito calculado destoar muito do que você sabe que foi pedido, vale conferir o recibo do campus: ou ele
+      não foi lançado, ou foi lançado com quantidade errada. A divergência é um bom detector disso.
+    </div>
+    <p>
+      <strong>Disponível</strong> = saldo − trânsito. <strong>Saldo final</strong> = disponível − o que você pretende
+      pedir; fica vermelho quando falta. O recorte de dias do trânsito é ajustável em
+      <strong>Administração › Configurações</strong> (<code>transito_janela_dias</code>).
+    </p>
+
+    <hr />
+
+    <h2>14. Notificações: faltas e devoluções dos campi</h2>
     <p>
       Quando um item não é entregue ou volta por má qualidade, o campus registra uma <strong>ocorrência</strong> no
       próprio recibo. A aba <strong>Notificações</strong> reúne todas elas, consolidadas <strong>por fornecedor</strong>
@@ -411,7 +448,7 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 
     <hr />
 
-    <h2>14. Administração: usuários, log e configurações</h2>
+    <h2>15. Administração: usuários, log e configurações</h2>
     <p>O menu <strong>Administração</strong> (perfil admin) reúne três abas:</p>
     <ul class="lista">
       <li><strong>Usuários</strong> — crie servidores com senha inicial, defina o <strong>papel</strong> (campus/SANE/admin), a matrícula SIAPE e vincule <strong>um ou mais campi</strong> (botão “Campi”). Use “Definir senha” para redefinir acessos e <strong>“Excluir”</strong> para remover um usuário que deixou a instituição. O sistema <em>impede</em> excluir ou rebaixar o último administrador, para não deixar o sistema sem dono.</li>
@@ -476,7 +513,7 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 
     <hr />
 
-    <h2>15. Perguntas frequentes e glossário</h2>
+    <h2>16. Perguntas frequentes e glossário</h2>
     <p><strong>“Erro ao salvar” ao criar uma NF.</strong> Em geral a NF já existe (o número é único por grupo). A mensagem indica o motivo — abra a NF existente na lista em vez de recriá-la.</p>
     <p><strong>Os itens do grupo não aparecem na NF.</strong> Já corrigido: ao trocar de grupo os itens carregam automaticamente. Confirme se o grupo está selecionado.</p>
     <p><strong>Preciso de uma NF única para dois grupos (C Teixeira).</strong> Selecione os dois grupos nas “pílulas”; cada item vai ao empenho do seu próprio grupo na distribuição.</p>
