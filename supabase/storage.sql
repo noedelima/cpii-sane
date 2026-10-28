@@ -11,6 +11,25 @@ values
   ('pdfs-cobranca', 'pdfs-cobranca', false)
 on conflict (id) do nothing;
 
+-- Tipos e tamanho aceitos, no servidor. A tela ja valida, mas a validacao da
+-- tela e conveniencia: qualquer cliente autenticado fala direto com a API do
+-- Storage. Esta e a regra que vale.
+-- Imagens so em JPEG e PNG, e so nos recibos: o "Baixar PDFs unificados" embute
+-- os anexos com pdf-lib, que le apenas esses dois formatos — aceitar HEIC ou
+-- WebP faria a foto subir e desaparecer do PDF que instrui o pagamento.
+-- Documentos oficiais (NE, NF, instrumento de cobranca) seguem so em PDF.
+-- UPDATE explicito: o "on conflict do nothing" acima nao altera bucket que ja
+-- existe, e todos ja existem em producao.
+update storage.buckets
+   set allowed_mime_types = array['application/pdf', 'image/jpeg', 'image/png'],
+       file_size_limit    = 10485760
+ where id = 'pdfs-recibos';
+
+update storage.buckets
+   set allowed_mime_types = array['application/pdf'],
+       file_size_limit    = 10485760
+ where id in ('pdfs-empenhos', 'pdfs-nfs', 'pdfs-cobranca');
+
 -- Leitura: qualquer autenticado (URLs assinadas geradas pelo app).
 drop policy if exists sane_pdfs_select on storage.objects;
 create policy sane_pdfs_select on storage.objects for select to authenticated

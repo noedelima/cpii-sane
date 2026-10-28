@@ -269,7 +269,8 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
     <p>
       Ainda na NF, o card <strong>“Recibos vinculados”</strong> permite associar manualmente os recibos do(s) grupo(s):
       busque pelo número e clique em <strong>vincular</strong> (o vínculo é livre dentro do grupo — um recibo pode ser
-      referenciado por mais de uma NF). O botão <strong>“Baixar PDFs unificados”</strong> junta os PDFs dos recibos com anexo.
+      referenciado por mais de uma NF). O botão <strong>“Baixar PDFs unificados”</strong> junta os anexos dos recibos num
+      único PDF — inclusive os anexos em <strong>JPG/PNG</strong> (foto de impropriedade), que entram como páginas.
       O <strong>Instrumento de Cobrança</strong> (Contratos.gov) é anexado no cabeçalho, ao lado do PDF da NF.
     </p>
     <p>

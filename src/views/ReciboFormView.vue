@@ -6,7 +6,7 @@ import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { getDiasRecibo } from "@/lib/config";
 import { avisoDataRecibo, listarDias, semRestricao } from "@/lib/dias-semana";
-import PdfUpload from "@/components/PdfUpload.vue";
+import ArquivoUpload from "@/components/ArquivoUpload.vue";
 import type { Campus, Grupo, Item, NotaFiscal, Recibo } from "@/types/database";
 
 interface LinhaItem {
@@ -539,6 +539,12 @@ async function salvar() {
       if (e1 || !rec) throw e1 ?? new Error("Falha ao gravar recibo.");
 
       const novoId = (rec as { id: number }).id;
+      // Daqui em diante o recibo JA existe: falha em itens, anexos ou
+      // ocorrencias e parcial, nunca motivo para voltar ao formulario de
+      // cadastro — um segundo "Salvar" criaria um recibo duplicado. Em vez
+      // disso, abrimos o recibo gravado com o aviso do que faltou.
+      const falhas: string[] = [];
+
       const inserts = linhas.value.map((l) => ({
         recibo_id: novoId,
         item_id: l.item_id,
@@ -546,7 +552,7 @@ async function salvar() {
         unidade: l.unidade,
       }));
       const { error: e2 } = await supabase.from("recibos_itens").insert(inserts);
-      if (e2) throw e2;
+      if (e2) falhas.push(`os itens entregues (${e2.message})`);
 
       // anexos e ocorrencias ficam em memoria ate existir o id do recibo
       if (anexos.value.length) {
@@ -559,7 +565,7 @@ async function salvar() {
             created_by_nome: auth.perfil?.nome ?? null,
           }))
         );
-        if (e3) throw e3;
+        if (e3) falhas.push(`os outros anexos (${e3.message})`);
       }
       if (ocorrencias.value.length) {
         const { error: e4 } = await supabase.from("recibos_ocorrencias").insert(
@@ -574,7 +580,15 @@ async function salvar() {
             created_by_nome: auth.perfil?.nome ?? null,
           }))
         );
-        if (e4) throw e4;
+        if (e4) falhas.push(`as ocorrências (${e4.message})`);
+      }
+
+      if (falhas.length) {
+        error.value =
+          `O recibo ${numero.value} foi gravado, mas falhou ao salvar ${falhas.join(" e ")}. ` +
+          "Complete o que faltou nesta tela — não cadastre o recibo de novo.";
+        await router.push(`/recibos/${novoId}`);
+        return;
       }
       router.push("/recibos");
     }
@@ -584,6 +598,14 @@ async function salvar() {
     saving.value = false;
   }
 }
+
+// Ir de /recibos/novo para /recibos/:id (ou de um recibo para outro) reaproveita
+// este mesmo componente, e o onMounted nao roda de novo: sem este watch a tela
+// ficaria exibindo o estado do recibo anterior.
+watch(reciboId, async (novo, antigo) => {
+  if (novo == null || novo === antigo) return;
+  await loadRecibo();
+});
 
 onMounted(async () => {
   diasPermitidos.value = await getDiasRecibo();
@@ -686,10 +708,11 @@ onMounted(async () => {
           <label class="label">Observações (opcional)</label>
           <textarea v-model="observacoes" rows="2" class="input" :disabled="!podeEditarDados"></textarea>
         </div>
-        <PdfUpload
+        <ArquivoUpload
           v-model="linkPdf"
           bucket="pdfs-recibos"
-          label="PDF do recibo (opcional)"
+          label="Recibo digitalizado (opcional)"
+          imagens
           :disabled="!podeEditarDados"
         />
         <p
@@ -942,11 +965,15 @@ onMounted(async () => {
       </div>
 
       <!-- Anexos adicionais -->
-      <div v-if="editMode" class="card p-5 space-y-4">
+      <div class="card p-5 space-y-4">
         <h2 class="font-medium text-slate-700 dark:text-slate-200">Outros anexos</h2>
         <p class="text-xs text-slate-500 dark:text-slate-400">
-          Além do PDF principal, anexe quantos arquivos precisar (canhoto, segunda via, foto da
-          ocorrência). Todos entram no “Baixar PDFs unificados” da nota fiscal.
+          Além do recibo digitalizado, anexe quantos arquivos precisar — canhoto, segunda via,
+          <strong>foto da impropriedade</strong>. Aceita PDF, JPG e PNG; todos entram no
+          “Baixar PDFs unificados” da nota fiscal.
+          <template v-if="!editMode">
+            Os anexos são gravados junto com o recibo, ao salvar.
+          </template>
         </p>
 
         <div
@@ -958,10 +985,11 @@ onMounted(async () => {
             :key="a.id ?? `a${idx}`"
             class="flex items-end justify-between gap-3 px-3 py-2"
           >
-            <PdfUpload
+            <ArquivoUpload
               :model-value="a.link_pdf"
               bucket="pdfs-recibos"
               :label="a.descricao || 'Anexo'"
+              imagens
               disabled
             />
             <button
@@ -988,7 +1016,12 @@ onMounted(async () => {
             />
           </div>
           <div class="sm:col-span-5">
-            <PdfUpload v-model="novoAnexoLink" bucket="pdfs-recibos" label="Anexar mais um PDF" />
+            <ArquivoUpload
+              v-model="novoAnexoLink"
+              bucket="pdfs-recibos"
+              label="Anexar mais um arquivo"
+              imagens
+            />
           </div>
         </div>
       </div>

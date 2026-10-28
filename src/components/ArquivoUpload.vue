@@ -1,15 +1,29 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { supabase } from "@/lib/supabase";
+import {
+  accept,
+  contentTypeDe,
+  ehImagem,
+  formatoDoCaminho,
+  sanitizarNome,
+  validarArquivo,
+} from "@/lib/arquivos";
 
 const props = defineProps<{
-  /** Bucket do Storage (pdfs-empenhos | pdfs-nfs | pdfs-recibos). */
+  /** Bucket do Storage (pdfs-empenhos | pdfs-nfs | pdfs-recibos | pdfs-cobranca). */
   bucket: string;
   /** Caminho no bucket (ou URL http legada). */
   modelValue: string | null;
   label?: string;
   /** Somente leitura: mostra o link, sem anexar/remover. */
   disabled?: boolean;
+  /**
+   * Aceitar imagens (JPG/PNG) alem de PDF. Usado nos recibos, onde os campi
+   * registram fotos das impropriedades. Documentos oficiais (NE, NF,
+   * instrumento de cobranca) seguem so em PDF.
+   */
+  imagens?: boolean;
 }>();
 const emit = defineEmits<{ (e: "update:modelValue", v: string | null): void }>();
 
@@ -18,6 +32,10 @@ const error = ref<string | null>(null);
 const signedUrl = ref<string | null>(null);
 
 const isLegacyUrl = (v: string | null) => !!v && /^https?:\/\//i.test(v);
+
+/** Palpite pela extensao: decide so a aparencia (miniatura e rotulo). */
+const pareceImagem = computed(() => ehImagem(formatoDoCaminho(props.modelValue)));
+const substantivo = computed(() => (props.imagens ? "arquivo" : "PDF"));
 
 async function refreshSignedUrl() {
   signedUrl.value = null;
@@ -41,27 +59,17 @@ async function onFile(ev: Event) {
   const file = input.files?.[0];
   input.value = "";
   if (!file) return;
-  if (file.type !== "application/pdf") {
-    error.value = "Envie um arquivo PDF.";
-    return;
-  }
-  if (file.size > 10 * 1024 * 1024) {
-    error.value = "Arquivo acima de 10 MB.";
+  const invalido = validarArquivo(file, !!props.imagens);
+  if (invalido) {
+    error.value = invalido;
     return;
   }
   uploading.value = true;
   try {
-    const safe = file.name
-      .normalize("NFD")
-      // remove diacríticos combinantes (acentos) antes de sanitizar
-      .replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-zA-Z0-9._-]+/g, "_")
-      .slice(-80);
-    const path = `${Date.now()}-${safe}`;
+    const path = `${Date.now()}-${sanitizarNome(file.name)}`;
     const { error: err } = await supabase.storage
       .from(props.bucket)
-      .upload(path, file, { contentType: "application/pdf", upsert: false });
+      .upload(path, file, { contentType: contentTypeDe(file), upsert: false });
     if (err) throw err;
     emit("update:modelValue", path);
   } catch (e) {
@@ -79,9 +87,22 @@ function remover() {
 
 <template>
   <div>
-    <label class="label">{{ label ?? "PDF" }}</label>
+    <label class="label">{{ label ?? (imagens ? "Arquivo" : "PDF") }}</label>
 
     <div v-if="modelValue" class="flex items-center gap-3 text-sm">
+      <a
+        v-if="signedUrl && pareceImagem"
+        :href="signedUrl"
+        target="_blank"
+        rel="noopener"
+        class="shrink-0"
+      >
+        <img
+          :src="signedUrl"
+          alt=""
+          class="h-12 w-12 rounded border border-slate-200 dark:border-slate-700 object-cover"
+        />
+      </a>
       <a
         v-if="signedUrl"
         :href="signedUrl"
@@ -93,9 +114,11 @@ function remover() {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
             d="M12 10v6m0 0l-2-2m2 2l2-2M5 8h14M5 8a2 2 0 01-2-2V5a2 2 0 012-2h6l2 2h6a2 2 0 012 2v1a2 2 0 01-2 2" />
         </svg>
-        Ver PDF
+        {{ pareceImagem ? "Ver imagem" : `Ver ${substantivo}` }}
       </a>
-      <span v-else class="text-slate-500 dark:text-slate-400">PDF anexado</span>
+      <span v-else class="text-slate-500 dark:text-slate-400">
+        {{ pareceImagem ? "Imagem anexada" : "PDF anexado" }}
+      </span>
       <button
         v-if="!disabled"
         type="button"
@@ -106,12 +129,23 @@ function remover() {
       </button>
     </div>
 
-    <p v-else-if="disabled" class="text-sm text-slate-500 dark:text-slate-400">Nenhum PDF anexado.</p>
+    <p v-else-if="disabled" class="text-sm text-slate-500 dark:text-slate-400">
+      Nenhum {{ substantivo }} anexado.
+    </p>
 
     <label v-else class="btn-secondary cursor-pointer inline-flex">
-      {{ uploading ? "Enviando…" : "Anexar PDF" }}
-      <input type="file" accept="application/pdf" class="hidden" :disabled="uploading" @change="onFile" />
+      {{ uploading ? "Enviando…" : `Anexar ${substantivo}` }}
+      <input
+        type="file"
+        :accept="accept(!!imagens)"
+        class="hidden"
+        :disabled="uploading"
+        @change="onFile"
+      />
     </label>
+    <p v-if="!modelValue && !disabled && imagens" class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+      PDF, JPG ou PNG (até 10 MB).
+    </p>
 
     <p v-if="error" class="text-xs text-red-600 dark:text-red-400 mt-1">{{ error }}</p>
   </div>

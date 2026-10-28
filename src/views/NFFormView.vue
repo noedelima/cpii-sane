@@ -6,7 +6,8 @@ import { buscarTudo } from "@/lib/consulta";
 import { msgErro } from "@/lib/erro";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
-import PdfUpload from "@/components/PdfUpload.vue";
+import ArquivoUpload from "@/components/ArquivoUpload.vue";
+import { detectarFormato } from "@/lib/arquivos";
 import { carregarLogo } from "@/lib/pdf-ateste";
 import { montarPdfNFLancamento } from "@/lib/pdf-nf-lancamento";
 import { getCabecalho } from "@/lib/config";
@@ -406,6 +407,11 @@ watch(buscaRecibo, () => {
 // filtro por periodo: recarrega a lista de candidatos ao mudar as datas
 watch([reciboDe, reciboAte], () => buscarRecibosCandidatos());
 
+// Pagina A4 em pontos, para encaixar os anexos em imagem no PDF unificado.
+const A4_LARGURA = 595.28;
+const A4_ALTURA = 841.89;
+const A4_MARGEM = 24;
+
 async function baixarRecibosUnificados() {
   const alvos: { rotulo: string; caminho: string }[] = [];
   for (const r of recibosVinculados.value) {
@@ -437,15 +443,38 @@ async function baixarRecibosUnificados() {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         const bytes = await resp.arrayBuffer();
-        const docPdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
-        const pages = await final.copyPages(docPdf, docPdf.getPageIndices());
-        for (const pg of pages) final.addPage(pg);
+        const formato = detectarFormato(new Uint8Array(bytes));
+        if (formato === "jpeg" || formato === "png") {
+          // Anexo em imagem (foto da impropriedade): entra como pagina propria,
+          // ajustada ao A4 sem distorcer. Antes do suporte a imagem este anexo
+          // caia em "pulados" e nao chegava ao processo de pagamento.
+          const img =
+            formato === "jpeg" ? await final.embedJpg(bytes) : await final.embedPng(bytes);
+          const pg = final.addPage([A4_LARGURA, A4_ALTURA]);
+          const util = Math.min(
+            (A4_LARGURA - 2 * A4_MARGEM) / img.width,
+            (A4_ALTURA - 2 * A4_MARGEM) / img.height,
+            1
+          );
+          const w = img.width * util;
+          const h = img.height * util;
+          pg.drawImage(img, {
+            x: (A4_LARGURA - w) / 2,
+            y: (A4_ALTURA - h) / 2,
+            width: w,
+            height: h,
+          });
+        } else {
+          const docPdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+          const pages = await final.copyPages(docPdf, docPdf.getPageIndices());
+          for (const pg of pages) final.addPage(pg);
+        }
       } catch {
         pulados.push(alvo.rotulo);
       }
     }
     if (final.getPageCount() === 0) {
-      throw new Error("Não foi possível ler nenhum dos PDFs (links externos podem bloquear o download).");
+      throw new Error("Não foi possível ler nenhum dos anexos (links externos podem bloquear o download).");
     }
     const out = await final.save();
     const blob = new Blob([out.buffer as ArrayBuffer], { type: "application/pdf" });
@@ -455,7 +484,7 @@ async function baixarRecibosUnificados() {
     a.click();
     URL.revokeObjectURL(a.href);
     if (pulados.length) {
-      error.value = `PDF gerado, mas alguns recibos não puderam ser incluídos: ${pulados.join(", ")} (sem PDF legível ou link externo).`;
+      error.value = `PDF gerado, mas alguns anexos não puderam ser incluídos: ${pulados.join(", ")} (arquivo ilegível, formato não suportado ou link externo).`;
     }
   } catch (e) {
     error.value = msgErro(e, "Falha ao unificar os PDFs.");
@@ -1085,8 +1114,8 @@ onMounted(async () => {
             <label class="label">Abertura do processo</label>
             <input v-model="dataAberturaProcesso" type="date" class="input" />
           </div>
-          <PdfUpload v-model="linkPdf" bucket="pdfs-nfs" label="PDF da nota fiscal" />
-          <PdfUpload v-model="linkCobranca" bucket="pdfs-cobranca" label="Instrumento de Cobrança (Contratos.gov)" />
+          <ArquivoUpload v-model="linkPdf" bucket="pdfs-nfs" label="PDF da nota fiscal" />
+          <ArquivoUpload v-model="linkCobranca" bucket="pdfs-cobranca" label="Instrumento de Cobrança (Contratos.gov)" />
         </div>
         <div class="grid sm:grid-cols-2 gap-4">
           <div>

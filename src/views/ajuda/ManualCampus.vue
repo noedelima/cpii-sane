@@ -22,7 +22,7 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
         <li>Faltas e devoluções: registrar ocorrências</li>
         <li>Corrigir um recibo já salvo</li>
         <li>Acompanhar seus recibos</li>
-        <li>Anexar PDFs ao recibo</li>
+        <li>Anexar arquivos ao recibo</li>
         <li>Trocar a senha</li>
         <li>Perguntas frequentes</li>
       </ol>
@@ -284,20 +284,27 @@ import AjudaFig from "@/components/ajuda/AjudaFig.vue";
 
     <hr />
 
-    <h2>8. Anexar PDFs ao recibo</h2>
+    <h2>8. Anexar arquivos ao recibo</h2>
     <p>
-      Ao abrir um recibo, use <strong>“Anexar PDF”</strong> para subir a imagem/PDF do documento físico (até 10 MB).
-      Depois de anexado, aparece o link <strong>“Ver PDF”</strong>. Isso ajuda a SANE na conferência e mantém o
-      comprovante junto ao registro.
+      Use <strong>“Anexar arquivo”</strong> para subir o documento físico digitalizado (até 10 MB). São aceitos
+      <strong>PDF, JPG e PNG</strong> — dá para fotografar o recibo com o celular. Depois de anexado, aparece o
+      link para abrir (e a miniatura, se for imagem). Isso ajuda a SANE na conferência e mantém o comprovante
+      junto ao registro.
     </p>
     <p>
       Se um recibo tiver <strong>mais de um documento</strong> (várias folhas digitalizadas em arquivos separados,
-      um comprovante de devolução, uma foto), use a seção <strong>Anexos adicionais</strong>, logo abaixo: dê uma
-      descrição, anexe o arquivo e repita quantas vezes precisar. Não há limite de quantidade.
+      um comprovante de devolução, a foto de uma impropriedade), use a seção <strong>Outros anexos</strong>, logo
+      abaixo: dê uma descrição, anexe o arquivo e repita quantas vezes precisar. Não há limite de quantidade, e a
+      seção está disponível <strong>já no cadastro</strong> do recibo — os anexos são gravados junto, ao salvar.
     </p>
     <div class="callout dica">
       Quando a SANE gera o PDF unificado dos recibos de uma nota fiscal, os anexos adicionais entram junto —
-      então vale anexá-los aqui em vez de enviar por e-mail à parte.
+      as imagens viram páginas do PDF. Então vale anexá-los aqui em vez de enviar por e-mail à parte.
+    </div>
+    <div class="callout atencao">
+      Foto de iPhone costuma sair em <strong>HEIC</strong>, que o sistema não aceita. Na própria foto, use
+      <em>Compartilhar › Opções › Mais compatível</em> para enviar em JPG — ou ajuste em
+      <em>Ajustes › Câmera › Formatos › Mais compatível</em>.
     </div>
 
     <hr />

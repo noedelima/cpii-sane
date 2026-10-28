@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth";
 import { fmtDate, fmtMoney } from "@/lib/format";
-import PdfUpload from "@/components/PdfUpload.vue";
+import ArquivoUpload from "@/components/ArquivoUpload.vue";
 import { carregarLogo } from "@/lib/pdf-ateste";
 import { montarPdfEmpenhoSaldos } from "@/lib/pdf-empenho-saldos";
 import { getCabecalho } from "@/lib/config";
@@ -579,7 +579,7 @@ onMounted(async () => {
             <label class="label">Processo SUAP</label>
             <input v-model="processoSuap" type="text" class="input" placeholder="23040.000000/2026-00" />
           </div>
-          <PdfUpload v-model="linkPdf" bucket="pdfs-empenhos" label="PDF da nota de empenho" />
+          <ArquivoUpload v-model="linkPdf" bucket="pdfs-empenhos" label="PDF da nota de empenho" />
         </div>
       </div>
 
